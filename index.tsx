@@ -1,8 +1,9 @@
 // --- Gemini AI Client and Type Imports ---
 import { GoogleGenAI, Type } from "@google/genai";
-import { auth, db } from './firebase'; // Firebase config import
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "firebase/auth";
-import { doc, getDoc, setDoc, collection, getDocs, updateDoc, deleteDoc, query, where, Timestamp } from "firebase/firestore";
+// FIX: Updated Firebase imports for v8 syntax. Removed modular imports and added Timestamp.
+import { auth, db, Timestamp } from './firebase'; // Firebase config import
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc, collection, getDocs, updateDoc, deleteDoc, query, where } from "firebase/firestore";
 
 
 // --- Type Definitions ---
@@ -66,12 +67,6 @@ const registerButton = document.getElementById('register-button')!;
 const loginError = document.getElementById('login-error')!;
 const registerError = document.getElementById('register-error')!;
 const registerSuccess = document.getElementById('register-success')!;
-
-// Teacher Login
-const showTeacherLogin = document.getElementById('show-teacher-login')!;
-const teacherLoginForm = document.getElementById('teacher-login-form')!;
-const teacherPasswordInput = document.getElementById('teacher-password-input') as HTMLInputElement;
-const teacherLoginButton = document.getElementById('teacher-login-button')!;
 
 // Problem Selection
 const problemSelectionContainer = document.getElementById('problem-selection-container')!;
@@ -624,15 +619,20 @@ async function handleRegister() {
     }
 
     try {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        // FIX: Switched to Firebase v8 auth syntax.
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         const user = userCredential.user;
+        if (!user) throw new Error("User creation failed, user object is null.");
         const displayName = email.split('@')[0];
-
-        await updateProfile(user, { displayName });
-        await setDoc(doc(db, "users", user.uid), {
+        
+        // FIX: Switched to Firebase v8 auth syntax.
+        await user.updateProfile({ displayName });
+        // FIX: Switched to Firebase v8 firestore syntax.
+        await db.collection("users").doc(user.uid).set({
             displayName: displayName,
             email: user.email,
             status: 'pending',
+            role: 'student', // Default role for new users
             createdAt: Timestamp.now()
         });
 
@@ -656,7 +656,8 @@ async function handleRegister() {
 
 
 function logout() {
-    signOut(auth).catch(error => console.error("Logout Error:", error));
+    // FIX: Switched to Firebase v8 auth syntax.
+    auth.signOut().catch(error => console.error("Logout Error:", error));
 }
 
 
@@ -673,7 +674,8 @@ async function handleLogin() {
     }
     
     try {
-        await signInWithEmailAndPassword(auth, email, password);
+        // FIX: Switched to Firebase v8 auth syntax.
+        await auth.signInWithEmailAndPassword(email, password);
         // onAuthStateChanged will handle the rest
     } catch (error: any) {
         console.error("Login Error:", error);
@@ -850,8 +852,9 @@ async function populateTeacherDashboard() {
 
 
     // Tab 2: Registration Requests
-    const q = query(collection(db, "users"), where("status", "==", "pending"));
-    const querySnapshot = await getDocs(q);
+    // FIX: Switched to Firebase v8 firestore syntax.
+    const q = db.collection("users").where("status", "==", "pending");
+    const querySnapshot = await q.get();
     let requestsHtml = '<div class="space-y-4">';
     if (querySnapshot.empty) {
         requestsHtml = '<p class="text-center text-gray-500 py-8">Onay bekleyen öğrenci kaydı bulunmuyor.</p>';
@@ -890,12 +893,14 @@ async function handleApprovalAction(event: Event) {
 
     try {
         if (button.classList.contains('approve-button')) {
-            const userDocRef = doc(db, 'users', userId);
-            await updateDoc(userDocRef, { status: "approved" });
+            // FIX: Switched to Firebase v8 firestore syntax.
+            const userDocRef = db.collection('users').doc(userId);
+            await userDocRef.update({ status: "approved" });
             showNotification('Öğrenci onaylandı.', 3000, 'success');
         } else if (button.classList.contains('reject-button')) {
-            const userDocRef = doc(db, 'users', userId);
-            await deleteDoc(userDocRef);
+            // FIX: Switched to Firebase v8 firestore syntax.
+            const userDocRef = db.collection('users').doc(userId);
+            await userDocRef.delete();
             // Note: This does not delete the user from Firebase Auth, only Firestore.
             // For a full user deletion, a cloud function with admin privileges is required.
             showNotification('İstek reddedildi ve silindi.', 3000, 'success');
@@ -950,21 +955,6 @@ function setupEventListeners() {
         loginView.classList.remove('hidden');
     });
 
-    showTeacherLogin.addEventListener('click', (e) => {
-        e.preventDefault();
-        teacherLoginForm.classList.toggle('hidden');
-    });
-    
-    teacherLoginButton.addEventListener('click', () => {
-        // This password should be stored securely, e.g., in environment variables
-        if (teacherPasswordInput.value === 'teacher123') {
-             populateTeacherDashboard();
-             showScreen('teacherDashboard');
-        } else {
-            alert('Geçersiz öğretmen şifresi');
-        }
-    });
-
     problemSelectionContainer.addEventListener('click', handleProblemSelect);
     simulation.optionsContainer.addEventListener('click', handleOptionSelect);
 
@@ -1007,27 +997,42 @@ function setupEventListeners() {
 // --- App Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
-    onAuthStateChanged(auth, async (user) => {
+    // FIX: Switched to Firebase v8 auth syntax.
+    auth.onAuthStateChanged(async (user) => {
         if (user) {
-            const userDocRef = doc(db, 'users', user.uid);
-            const docSnap = await getDoc(userDocRef);
+            // FIX: Switched to Firebase v8 firestore syntax.
+            const userDocRef = db.collection('users').doc(user.uid);
+            const docSnap = await userDocRef.get();
 
-            if (docSnap.exists() && docSnap.data().status === 'approved') {
+            if (docSnap.exists) {
+                const userData = docSnap.data()!;
                 currentUserId = user.uid;
-                currentStudentName = user.displayName || docSnap.data().displayName || user.email!;
+                currentStudentName = user.displayName || userData.displayName || user.email!;
                 
                 studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
                 studentInfo.classList.remove('hidden');
                 homeButton.classList.remove('hidden');
                 homeButton.innerHTML = `<span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>`;
-                
-                populateStudentDashboard();
-                showScreen('studentDashboard');
+
+                if (userData.role === 'teacher') {
+                    populateTeacherDashboard();
+                    showScreen('teacherDashboard');
+                } else if (userData.status === 'approved') {
+                    populateStudentDashboard();
+                    showScreen('studentDashboard');
+                } else {
+                    // FIX: Switched to Firebase v8 auth syntax.
+                    auth.signOut();
+                    loginError.textContent = 'Hesabınız henüz öğretmen tarafından onaylanmadı.';
+                    loginError.classList.remove('hidden');
+                    showScreen('login');
+                }
 
             } else {
                 // User exists in Auth, but not in Firestore or is pending
-                signOut(auth);
-                loginError.textContent = 'Hesabınız henüz öğretmen tarafından onaylanmadı veya bir sorun oluştu.';
+                // FIX: Switched to Firebase v8 auth syntax.
+                auth.signOut();
+                loginError.textContent = 'Kullanıcı veritabanında bulunamadı veya bir sorun oluştu.';
                 loginError.classList.remove('hidden');
             }
         } else {
@@ -1042,8 +1047,6 @@ document.addEventListener('DOMContentLoaded', () => {
             saveProgressButton.classList.add('hidden');
             usernameInput.value = '';
             passwordInput.value = '';
-            teacherPasswordInput.value = '';
-            teacherLoginForm.classList.add('hidden');
         }
     });
 
