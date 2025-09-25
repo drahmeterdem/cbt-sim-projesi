@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="tr"><head>
-<meta charset="utf-8"/>
+<meta charset="utf--8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <link crossorigin="" href="https://fonts.gstatic.com/" rel="preconnect"/>
 <link as="style" href="https://fonts.googleapis.com/css2?display=swap&amp;family=Noto+Sans%3Awght%40400%3B500%3B700%3B900&amp;family=Spline+Sans%3Awght%40400%3B500%3B700" onload="this.rel='stylesheet'" rel="stylesheet"/>
@@ -63,14 +63,13 @@
             @apply transition-opacity duration-300;
         }
         .teacher-inline-comment {
-            @apply mt-2 ms-4 border-l-4 border-amber-400 ps-3 py-2 bg-amber-50 rounded-r-lg;
+            @apply mt-2 ms-4 border-l-4 border-amber-400 ps-3 py-2 bg-amber-50 rounded-r-lg max-w-[85%];
         }
     </style>
 <script type="importmap">
 {
   "imports": {
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.17.0",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.3.0/"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.17.0"
   }
 }
 </script>
@@ -378,8 +377,12 @@
     <div id="teacher-content-container" class="transition-opacity duration-300">
         <div id="simulations-content" class="teacher-content hidden"></div>
         <div id="requests-content" class="teacher-content"></div>
-        <div id="uploads-content" class="teacher-content hidden"></div>
-        <div id="questions-content" class="teacher-content hidden"></div>
+        <div id="uploads-content" class="teacher-content hidden">
+            <div id="uploads-list-container" class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4"></div>
+        </div>
+        <div id="questions-content" class="teacher-content hidden">
+             <div id="questions-list-container" class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-6"></div>
+        </div>
         <div id="analytics-content" class="teacher-content hidden p-6 bg-white/70 rounded-2xl shadow-xl"></div>
         <div id="builder-content" class="teacher-content hidden"></div>
         <div id="library-content" class="teacher-content hidden"></div>
@@ -389,35 +392,55 @@
 
 <!-- Teacher Review Screen (for Simulations) -->
 <div id="teacher-review-screen" class="screen hidden">
-     <div class="flex flex-col gap-2 text-center">
-        <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Simülasyon İncelemesi</h2>
-        <p class="text-gray-600 text-lg">
-            <span id="review-student-name" class="font-semibold text-[var(--teacher-color)]"></span> adlı öğrencinin <span id="review-problem-display" class="font-semibold text-[var(--teacher-color)]"></span> konulu seansını inceliyorsunuz.
-        </p>
-    </div>
-    <div class="bg-white/60 backdrop-blur-lg rounded-2xl flex-1 flex flex-col shadow-xl overflow-hidden mt-6">
-        <div class="p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center">
-            <button id="back-to-dashboard-button" class="flex items-center justify-center rounded-lg h-10 px-4 bg-white/80 text-gray-600 font-semibold hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md">
+    <!-- This container shows the list of sessions for a student -->
+    <div id="teacher-review-list-view">
+        <div class="flex items-center justify-between mb-6">
+            <button id="back-to-teacher-dashboard-button" class="flex items-center justify-center rounded-lg h-10 px-4 bg-white/80 text-gray-600 font-semibold hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md">
                 <span class="material-symbols-outlined mr-2">arrow_back</span>
-                <span>Panele Dön</span>
+                <span>Tüm Öğrenciler</span>
             </button>
-            <h3 class="text-gray-800 text-xl sm:text-2xl font-bold">Seans Akışı</h3>
-            <div class="w-32"></div> <!-- Spacer -->
+            <h2 class="text-gray-900 tracking-tight text-2xl sm:text-3xl font-bold text-center">
+                <span id="review-list-student-name" class="text-[var(--teacher-color)]"></span> için Seans Listesi
+            </h2>
+            <div class="w-48"></div> <!-- Spacer -->
         </div>
-        <div class="p-4 sm:p-6 space-y-6 flex-1 overflow-y-auto h-96" id="review-chat-container">
-            <!-- Review messages will be appended here -->
+        <div id="review-session-list-container" class="space-y-4 bg-white/70 p-6 rounded-2xl shadow-xl">
+            <!-- Session list will be populated here -->
         </div>
-         <div id="review-feedback-section" class="p-4 sm:p-6 border-t border-b border-gray-200 bg-white/20">
-            <!-- Review graphs will be shown here -->
-         </div>
-        <div class="p-4 sm:p-6 bg-white/70">
-            <h4 class="text-gray-700 font-bold text-lg mb-4 text-center">Öğrenciye Genel Geri Bildirim Ekle</h4>
-            <div class="flex flex-col gap-3">
-                <textarea id="feedback-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 transition-shadow" rows="3" placeholder="Seansın geneline yönelik geri bildiriminizi buraya yazın..."></textarea>
-                <button id="submit-feedback-button" class="flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 text-md shadow-md hover:shadow-lg">
-                    <span class="material-symbols-outlined mr-2">send</span>
-                    <span>Genel Geri Bildirim Gönder</span>
+    </div>
+
+    <!-- This container shows the detailed view of a single session -->
+    <div id="teacher-review-detail-view" class="hidden">
+        <div class="flex flex-col gap-2 text-center">
+            <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Simülasyon İncelemesi</h2>
+            <p class="text-gray-600 text-lg">
+                <span id="review-student-name" class="font-semibold text-[var(--teacher-color)]"></span> adlı öğrencinin <span id="review-problem-display" class="font-semibold text-[var(--teacher-color)]"></span> konulu seansını inceliyorsunuz.
+            </p>
+        </div>
+        <div class="bg-white/60 backdrop-blur-lg rounded-2xl flex-1 flex flex-col shadow-xl overflow-hidden mt-6">
+            <div class="p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center">
+                <button id="back-to-session-list-button" class="flex items-center justify-center rounded-lg h-10 px-4 bg-white/80 text-gray-600 font-semibold hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md">
+                    <span class="material-symbols-outlined mr-2">arrow_back</span>
+                    <span>Seans Listesine Dön</span>
                 </button>
+                <h3 class="text-gray-800 text-xl sm:text-2xl font-bold">Seans Akışı</h3>
+                <div class="w-48"></div> <!-- Spacer -->
+            </div>
+            <div class="p-4 sm:p-6 space-y-6 flex-1 overflow-y-auto h-96" id="review-chat-container">
+                <!-- Review messages will be appended here -->
+            </div>
+             <div id="review-feedback-section" class="p-4 sm:p-6 border-t border-b border-gray-200 bg-white/20">
+                <!-- Review graphs will be shown here -->
+             </div>
+            <div class="p-4 sm:p-6 bg-white/70">
+                <h4 class="text-gray-700 font-bold text-lg mb-4 text-center">Öğrenciye Genel Geri Bildirim Ekle</h4>
+                <div class="flex flex-col gap-3">
+                    <textarea id="feedback-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 transition-shadow" rows="3" placeholder="Seansın geneline yönelik geri bildiriminizi buraya yazın..."></textarea>
+                    <button id="submit-feedback-button" class="flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 text-md shadow-md hover:shadow-lg">
+                        <span class="material-symbols-outlined mr-2">send</span>
+                        <span>Genel Geri Bildirim Gönder</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
