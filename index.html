@@ -70,9 +70,6 @@
 {
   "imports": {
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.17.0",
-    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
-    "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
     "firebase/": "https://aistudiocdn.com/firebase@^12.3.0/"
   }
 }
@@ -93,7 +90,7 @@
     <span class="material-symbols-outlined">person</span>
     <span id="student-name-display" class="font-semibold"></span>
 </div>
-<button id="home-button" class="hidden flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all duration-300 shadow-sm hover:shadow-md">
+<button id="logout-button" class="hidden flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all duration-300 shadow-sm hover:shadow-md">
     <span class="material-symbols-outlined mr-2">logout</span>
     <span>Çıkış Yap</span>
 </button>
@@ -120,8 +117,8 @@
             <div id="login-error" class="hidden text-red-600 bg-red-100 p-3 rounded-lg mt-4 text-sm"></div>
             <div class="mt-6 space-y-4">
                 <div>
-                    <label for="username-input" class="block text-sm font-medium text-gray-700">E-posta</label>
-                    <input type="email" id="username-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-3 transition-shadow">
+                    <label for="username-input" class="block text-sm font-medium text-gray-700">Kullanıcı Adı</label>
+                    <input type="text" id="username-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-3 transition-shadow">
                 </div>
                  <div>
                     <label for="password-input" class="block text-sm font-medium text-gray-700">Şifre</label>
@@ -142,8 +139,8 @@
              <div id="register-success" class="hidden text-green-700 bg-green-100 p-3 rounded-lg mt-4 text-sm"></div>
             <div class="mt-6 space-y-4">
                 <div>
-                    <label for="register-username-input" class="block text-sm font-medium text-gray-700">E-posta</label>
-                    <input type="email" id="register-username-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-3 transition-shadow">
+                    <label for="register-username-input" class="block text-sm font-medium text-gray-700">Kullanıcı Adı</label>
+                    <input type="text" id="register-username-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-3 transition-shadow">
                 </div>
                  <div>
                     <label for="register-password-input" class="block text-sm font-medium text-gray-700">Şifre</label>
@@ -163,13 +160,9 @@
         </div>
         <div id="teacher-login-view" class="hidden">
             <h2 class="text-gray-900 tracking-tight text-3xl font-bold text-center">Öğretmen Girişi</h2>
-            <p class="text-center text-gray-600 mt-2">Lütfen yönetici bilgilerinizi girin.</p>
+            <p class="text-center text-gray-600 mt-2">Lütfen yönetici şifresini girin.</p>
             <div id="teacher-login-error" class="hidden text-red-600 bg-red-100 p-3 rounded-lg mt-4 text-sm"></div>
             <div class="mt-6 space-y-4">
-                <div>
-                    <label for="teacher-username-input" class="block text-sm font-medium text-gray-700">Yönetici E-postası</label>
-                    <input type="email" id="teacher-username-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-lg p-3 transition-shadow">
-                </div>
                  <div>
                     <label for="teacher-password-input" class="block text-sm font-medium text-gray-700">Yönetici Şifresi</label>
                     <input type="password" id="teacher-password-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-lg p-3 transition-shadow">
@@ -373,11 +366,8 @@
     <!-- Tabs -->
     <div class="my-6 border-b border-gray-200">
         <nav class="-mb-px flex space-x-6 justify-center" aria-label="Tabs">
+            <button data-tab="requests" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Kayıt İstekleri</button>
             <button data-tab="simulations" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Simülasyonlar</button>
-            <button data-tab="requests" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg relative border-indigo-500 text-indigo-600">
-                Kayıt İstekleri
-                <span id="requests-count-badge" class="hidden absolute -top-1 -right-4 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center"></span>
-            </button>
             <button data-tab="uploads" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Yüklenen Seanslar</button>
             <button data-tab="questions" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Öğrenci Soruları</button>
             <button data-tab="analytics" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Sınıf Analitiği</button>
