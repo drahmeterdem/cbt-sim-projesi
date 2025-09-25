@@ -1,8 +1,5 @@
 // --- Gemini AI Client and Type Imports ---
 import { GoogleGenAI, Type } from "@google/genai";
-// FIX: Using v8 compat imports via firebase.ts. Removed incorrect v9 modular imports.
-import { auth, db, Timestamp } from './firebase'; // Firebase config import
-
 
 // --- Type Definitions ---
 interface Scenario {
@@ -25,13 +22,18 @@ interface Resource {
 // @ts-ignore
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
-// --- Global State ---
+// --- Global State & Constants ---
 let currentStudentName: string = '';
-let currentUserId: string = ''; // Firebase UID
+let currentUserId: string = ''; // Will now store username
 let reviewingStudentName: string = '';
 let currentScreen: keyof typeof screens | null = null;
-let activeTeacherTab: string = 'requests'; // Default to requests
+let activeTeacherTab: string = 'requests'; // Default to requests for teacher workflow
 let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
+
+const TEACHER_PASSWORD = 'teacher3243';
+const USERS_KEY = 'cbt_sim_users_v2'; // v2 includes approval status
+const SESSION_KEY = 'cbt_sim_session_v1';
+
 
 // --- DOM Element References ---
 const screens = {
@@ -46,7 +48,7 @@ const screens = {
 
 // General UI
 const studentInfo = document.getElementById('student-info')!;
-const homeButton = document.getElementById('home-button')!;
+const logoutButton = document.getElementById('logout-button')!;
 const backToSelectionButton = document.getElementById('back-to-selection-button')!;
 const notificationContainer = document.getElementById('notification-container')!;
 
@@ -60,15 +62,12 @@ const showTeacherLoginView = document.getElementById('show-teacher-login-view')!
 const showStudentLoginView = document.getElementById('show-student-login-view')!;
 const usernameInput = document.getElementById('username-input') as HTMLInputElement;
 const passwordInput = document.getElementById('password-input') as HTMLInputElement;
-// FIX: Cast to HTMLButtonElement to resolve error when accessing 'disabled' property.
 const loginButton = document.getElementById('login-button')! as HTMLButtonElement;
 const registerUsernameInput = document.getElementById('register-username-input') as HTMLInputElement;
 const registerPasswordInput = document.getElementById('register-password-input') as HTMLInputElement;
 const registerConfirmPasswordInput = document.getElementById('register-confirm-password-input') as HTMLInputElement;
 const registerButton = document.getElementById('register-button')!;
-const teacherUsernameInput = document.getElementById('teacher-username-input') as HTMLInputElement;
 const teacherPasswordInput = document.getElementById('teacher-password-input') as HTMLInputElement;
-// FIX: Cast to HTMLButtonElement to resolve error when accessing 'disabled' property.
 const teacherLoginButton = document.getElementById('teacher-login-button')! as HTMLButtonElement;
 const loginError = document.getElementById('login-error')!;
 const registerError = document.getElementById('register-error')!;
@@ -125,7 +124,6 @@ const analysis = {
 const teacherDashboard = {
     tabs: document.querySelectorAll('.teacher-tab'),
     contentContainer: document.getElementById('teacher-content-container')!,
-    requestsCountBadge: document.getElementById('requests-count-badge')!,
     contents: {
         simulations: document.getElementById('simulations-content')!,
         requests: document.getElementById('requests-content')!,
@@ -606,16 +604,16 @@ function rebuildUiFromState(container: HTMLElement, history: any[], isReview: bo
 
 // --- Login, Register & Logout ---
 
-async function handleRegister() {
-    const email = registerUsernameInput.value.trim();
+function handleRegister() {
+    const username = registerUsernameInput.value.trim();
     const password = registerPasswordInput.value;
     const confirmPassword = registerConfirmPasswordInput.value;
 
     registerError.classList.add('hidden');
     registerSuccess.classList.add('hidden');
 
-    if (!email || !password) {
-        registerError.textContent = 'E-posta ve şifre boş bırakılamaz.';
+    if (!username || !password) {
+        registerError.textContent = 'Kullanıcı adı ve şifre boş bırakılamaz.';
         registerError.classList.remove('hidden');
         return;
     }
@@ -625,85 +623,78 @@ async function handleRegister() {
         return;
     }
 
-    try {
-        // FIX: Switched to Firebase v8 auth syntax.
-        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-        const user = userCredential.user;
-        if (!user) throw new Error("User creation failed, user object is null.");
-        const displayName = email.split('@')[0];
-        
-        // FIX: Switched to Firebase v8 auth syntax.
-        await user.updateProfile({ displayName });
-        // FIX: Switched to Firebase v8 firestore syntax.
-        await db.collection("users").doc(user.uid).set({
-            displayName: displayName,
-            email: user.email,
-            status: 'pending',
-            role: 'student', // Default role for new users
-            createdAt: Timestamp.now()
-        });
-
-        registerSuccess.textContent = 'Kayıt başarılı! Öğretmeninizin onayı sonrası giriş yapabilirsiniz.';
-        registerSuccess.classList.remove('hidden');
-        registerUsernameInput.value = '';
-        registerPasswordInput.value = '';
-        registerConfirmPasswordInput.value = '';
-
-        setTimeout(() => {
-            registerView.classList.add('hidden');
-            loginView.classList.remove('hidden');
-        }, 3000);
-
-    } catch (error: any) {
-        console.error("Registration Error:", error);
-        registerError.textContent = error.message || 'Kayıt sırasında bir hata oluştu.';
+    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
+    if (users[username]) {
+        registerError.textContent = 'Bu kullanıcı adı zaten alınmış.';
         registerError.classList.remove('hidden');
-    }
-}
-
-
-function logout() {
-    // FIX: Switched to Firebase v8 auth syntax.
-    auth.signOut().catch(error => console.error("Logout Error:", error));
-}
-
-
-async function handleLogin(isTeacher: boolean = false) {
-    const email = isTeacher ? teacherUsernameInput.value.trim() : usernameInput.value.trim();
-    const password = isTeacher ? teacherPasswordInput.value : passwordInput.value;
-    const errorElement = isTeacher ? teacherLoginError : loginError;
-    const button = isTeacher ? teacherLoginButton : loginButton;
-    const originalButtonText = button.innerHTML;
-
-    errorElement.classList.add('hidden');
-
-    if (!email || !password) {
-        errorElement.textContent = 'Lütfen e-posta ve şifrenizi girin.';
-        errorElement.classList.remove('hidden');
         return;
     }
 
-    button.disabled = true;
-    button.innerHTML = `
-        <div class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status"></div>
-        <span class="ml-2">Giriş Yapılıyor...</span>
-    `;
-    
-    try {
-        // FIX: Switched to Firebase v8 auth syntax.
-        await auth.signInWithEmailAndPassword(email, password);
-        // onAuthStateChanged will handle the rest, so we don't reset the button here on success.
-    } catch (error: any) {
-        console.error("Login Error:", error);
-        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-            errorElement.textContent = 'Geçersiz e-posta veya şifre.';
+    users[username] = { password: password, status: 'pending' }; // Add with pending status
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+
+    registerSuccess.textContent = 'Kayıt başarılı! Hesabınız öğretmen onayını bekliyor.';
+    registerSuccess.classList.remove('hidden');
+    registerUsernameInput.value = '';
+    registerPasswordInput.value = '';
+    registerConfirmPasswordInput.value = '';
+
+    setTimeout(() => {
+        registerView.classList.add('hidden');
+        loginView.classList.remove('hidden');
+        registerSuccess.classList.add('hidden');
+    }, 3000);
+}
+
+function logout() {
+    sessionStorage.removeItem(SESSION_KEY);
+    location.reload();
+}
+
+function handleLogin() {
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+    loginError.classList.add('hidden');
+
+    if (!username || !password) {
+        loginError.textContent = 'Lütfen kullanıcı adı ve şifrenizi girin.';
+        loginError.classList.remove('hidden');
+        return;
+    }
+
+    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
+    const user = users[username];
+
+    if (user && user.password === password) {
+        if (user.status === 'approved') {
+            sessionStorage.setItem(SESSION_KEY, JSON.stringify({ type: 'student', username: username }));
+            location.reload();
+        } else if (user.status === 'pending') {
+            loginError.textContent = 'Hesabınız öğretmen onayını bekliyor.';
+            loginError.classList.remove('hidden');
+        } else if (user.status === 'rejected') {
+            loginError.textContent = 'Hesap kaydınız reddedildi.';
+            loginError.classList.remove('hidden');
         } else {
-            errorElement.textContent = 'Giriş sırasında bir hata oluştu.';
+             loginError.textContent = 'Geçersiz kullanıcı durumu. Lütfen yöneticiyle iletişime geçin.';
+             loginError.classList.remove('hidden');
         }
-        errorElement.classList.remove('hidden');
-        // Restore button only on error
-        button.disabled = false;
-        button.innerHTML = originalButtonText;
+    } else {
+        loginError.textContent = 'Geçersiz kullanıcı adı veya şifre.';
+        loginError.classList.remove('hidden');
+    }
+}
+
+function handleTeacherLogin() {
+    const password = teacherPasswordInput.value;
+    teacherLoginError.classList.add('hidden');
+
+    if (password === TEACHER_PASSWORD) {
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify({ type: 'teacher', username: 'Öğretmen' }));
+        location.reload();
+    } else {
+        teacherLoginError.textContent = 'Geçersiz yönetici şifresi.';
+        teacherLoginError.classList.remove('hidden');
     }
 }
 
@@ -846,6 +837,24 @@ function populateStudentDashboard() {
 
 // --- Teacher Dashboard ---
 
+function handleApprovalAction(event: Event) {
+    const target = event.target as HTMLElement;
+    const button = target.closest('.approve-button, .reject-button') as HTMLButtonElement | null;
+    if (!button) return;
+
+    const studentId = button.dataset.studentId!;
+    const action = button.dataset.action!;
+
+    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
+    if (users[studentId]) {
+        users[studentId].status = action === 'approve' ? 'approved' : 'rejected';
+        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        showNotification(`Öğrenci ${action === 'approve' ? 'onaylandı' : 'reddedildi'}.`, 3000, 'success');
+        populateTeacherDashboard(); // Refresh the list
+    }
+}
+
+
 function setActiveTeacherTab(tabName: string) {
     activeTeacherTab = tabName;
     teacherDashboard.tabs.forEach(t => t.classList.remove('border-indigo-500', 'text-indigo-600'));
@@ -859,89 +868,51 @@ function setActiveTeacherTab(tabName: string) {
     }
 }
 
-async function populateTeacherDashboard() {
-    // Tab 1: Simulations
-    const allStudentIds = JSON.parse(localStorage.getItem('cbt_sim_all_student_ids') || '[]');
-    let simulationsHtml = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
-    for (const studentId of allStudentIds) {
-        const studentState = loadState(studentId);
-        // This part needs student name which we don't have easily without another DB lookup
-        // For now, let's use a placeholder. In a real app, we'd store student names.
-        const studentName = studentId.substring(0, 8); // Placeholder
-        const completedCount = studentState.completedSimulations.length;
-        simulationsHtml += `
-             <div class="bg-white/80 p-5 rounded-xl shadow-lg">
-                <h4 class="font-bold text-lg text-gray-800">${studentName}</h4>
-                <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
-                <div class="mt-4 flex gap-2">
-                    <button data-student-id="${studentId}" class="view-sessions-button flex-1 bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors text-sm font-semibold">Seansları Görüntüle</button>
-                    <button data-student-id="${studentId}" class="view-summary-button bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 transition-colors text-sm font-semibold">AI Özet</button>
-                </div>
-            </div>`;
-    }
-    simulationsHtml += '</div>';
-    teacherDashboard.contents.simulations.innerHTML = simulationsHtml;
+function populateTeacherDashboard() {
+    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
+    const allStudents = Object.entries(users);
 
-
-    // Tab 2: Registration Requests
-    // FIX: Switched to Firebase v8 firestore syntax.
-    const q = db.collection("users").where("status", "==", "pending");
-    const querySnapshot = await q.get();
-    let requestsHtml = '<div class="space-y-4">';
-    if (querySnapshot.empty) {
-        requestsHtml = '<p class="text-center text-gray-500 py-8">Onay bekleyen öğrenci kaydı bulunmuyor.</p>';
+    // Tab 1: Requests
+    const pendingStudents = allStudents.filter(([, user]: [string, any]) => user.status === 'pending');
+    let requestsHtml = '<div class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4">';
+    if (pendingStudents.length === 0) {
+        requestsHtml += '<p class="text-center text-gray-500 py-4">Onay bekleyen öğrenci bulunmuyor.</p>';
     } else {
-        querySnapshot.forEach((doc) => {
-            const user = doc.data();
-            requestsHtml += `
-                <div class="bg-white/80 p-4 rounded-xl shadow-lg flex items-center justify-between">
-                    <div>
-                        <p class="font-bold text-gray-800">${user.displayName}</p>
-                        <p class="text-sm text-gray-500">${user.email}</p>
-                    </div>
-                    <div class="flex gap-3">
-                        <button data-uid="${doc.id}" class="approve-button bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors font-semibold">Onayla</button>
-                        <button data-uid="${doc.id}" class="reject-button bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors font-semibold">Reddet</button>
-                    </div>
+         requestsHtml += pendingStudents.map(([username]) => `
+            <div class="flex justify-between items-center p-4 bg-indigo-50 rounded-lg">
+                <span class="font-semibold text-gray-800">${username}</span>
+                <div class="flex gap-2">
+                    <button data-student-id="${username}" data-action="approve" class="approve-button bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 transition-colors text-sm font-semibold">Onayla</button>
+                    <button data-student-id="${username}" data-action="reject" class="reject-button bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 transition-colors text-sm font-semibold">Reddet</button>
                 </div>
-            `;
-        });
+            </div>
+        `).join('');
     }
     requestsHtml += '</div>';
     teacherDashboard.contents.requests.innerHTML = requestsHtml;
-    const pendingCount = querySnapshot.size;
-    teacherDashboard.requestsCountBadge.textContent = String(pendingCount);
-    teacherDashboard.requestsCountBadge.classList.toggle('hidden', pendingCount === 0);
 
-}
-
-async function handleApprovalAction(event: Event) {
-    const target = event.target as HTMLElement;
-    const button = target.closest('.approve-button, .reject-button') as HTMLButtonElement | null;
-    if (!button) return;
-
-    const userId = button.dataset.uid;
-    if (!userId) return;
-
-    try {
-        if (button.classList.contains('approve-button')) {
-            // FIX: Switched to Firebase v8 firestore syntax.
-            const userDocRef = db.collection('users').doc(userId);
-            await userDocRef.update({ status: "approved" });
-            showNotification('Öğrenci onaylandı.', 3000, 'success');
-        } else if (button.classList.contains('reject-button')) {
-            // FIX: Switched to Firebase v8 firestore syntax.
-            const userDocRef = db.collection('users').doc(userId);
-            await userDocRef.delete();
-            // Note: This does not delete the user from Firebase Auth, only Firestore.
-            // For a full user deletion, a cloud function with admin privileges is required.
-            showNotification('İstek reddedildi ve silindi.', 3000, 'success');
+    // Tab 2: Simulations
+    let simulationsHtml = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
+    const approvedStudents = allStudents.filter(([, user]: [string, any]) => user.status === 'approved');
+    if (approvedStudents.length === 0) {
+        simulationsHtml = '<p class="text-center text-gray-500 py-8 col-span-full">Henüz onaylanmış öğrenci bulunmuyor.</p>';
+    } else {
+        for (const [username] of approvedStudents) {
+            const studentState = loadState(username as string);
+            const completedCount = studentState.completedSimulations.length;
+            simulationsHtml += `
+                 <div class="bg-white/80 p-5 rounded-xl shadow-lg">
+                    <h4 class="font-bold text-lg text-gray-800">${username}</h4>
+                    <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
+                    <div class="mt-4 flex gap-2">
+                        <button data-student-id="${username}" class="view-sessions-button flex-1 bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors text-sm font-semibold">Seansları Görüntüle</button>
+                        <button data-student-id="${username}" class="view-summary-button bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 transition-colors text-sm font-semibold">AI Özet</button>
+                    </div>
+                </div>`;
         }
-        populateTeacherDashboard(); // Refresh list
-    } catch (error) {
-        console.error("Approval action error:", error);
-        showNotification('İşlem sırasında bir hata oluştu.', 3000, 'error');
     }
+    simulationsHtml += '</div>';
+    teacherDashboard.contents.simulations.innerHTML = simulationsHtml;
 }
 
 
@@ -971,10 +942,10 @@ function archiveCurrentSimulation(studentId: string) {
 
 // --- Event Listeners ---
 function setupEventListeners() {
-    loginButton.addEventListener('click', () => handleLogin(false));
-    teacherLoginButton.addEventListener('click', () => handleLogin(true));
+    loginButton.addEventListener('click', handleLogin);
+    teacherLoginButton.addEventListener('click', handleTeacherLogin);
     registerButton.addEventListener('click', handleRegister);
-    homeButton.addEventListener('click', logout); // Re-purposed as logout
+    logoutButton.addEventListener('click', logout);
 
     showRegisterView.addEventListener('click', (e) => {
         e.preventDefault();
@@ -1025,8 +996,9 @@ function setupEventListeners() {
             setActiveTeacherTab(tabName);
         });
     });
+    
+    teacherDashboard.contents.requests.addEventListener('click', handleApprovalAction);
 
-    teacherDashboard.contentContainer.addEventListener('click', handleApprovalAction);
 
     rationaleModal.closeButton.addEventListener('click', () => hideModal('rationale'));
     summaryModal.closeButton.addEventListener('click', () => hideModal('summary'));
@@ -1043,86 +1015,34 @@ function setupEventListeners() {
 // --- App Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
-    // FIX: Switched to Firebase v8 auth syntax.
-    auth.onAuthStateChanged(async (user) => {
-        // Restore login buttons to their original state in case a user is auto-logged in
-        loginButton.disabled = false;
-        loginButton.innerHTML = `<span>Giriş Yap</span>`;
-        teacherLoginButton.disabled = false;
-        teacherLoginButton.innerHTML = `<span>Giriş Yap</span>`;
+    
+    const session = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
 
-        if (user) {
-            // FIX: Switched to Firebase v8 firestore syntax.
-            const userDocRef = db.collection('users').doc(user.uid);
-            const docSnap = await userDocRef.get();
+    if (session) {
+        currentUserId = session.username;
+        currentStudentName = session.username;
 
-            if (docSnap.exists) {
-                const userData = docSnap.data()!;
-                
-                // This logic needs to know which login was attempted.
-                // We'll add a more specific check. The current logic is mostly correct
-                // but can be confusing for the teacher login flow.
-                const isTryingTeacherLogin = teacherLoginView.classList.contains('hidden') === false;
-
-                if (isTryingTeacherLogin && userData.role !== 'teacher') {
-                    auth.signOut();
-                    teacherLoginError.textContent = 'Bu hesap bir öğretmen hesabı değil.';
-                    teacherLoginError.classList.remove('hidden');
-                    return; // Stop further processing
-                }
-
-                currentUserId = user.uid;
-                currentStudentName = user.displayName || userData.displayName || user.email!;
-                
-                studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
-                studentInfo.classList.remove('hidden');
-                homeButton.classList.remove('hidden');
-                homeButton.innerHTML = `<span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>`;
-
-                if (userData.role === 'teacher') {
-                    await populateTeacherDashboard();
-                    setActiveTeacherTab('requests'); // Set requests as the default tab
-                    showScreen('teacherDashboard');
-                } else if (userData.status === 'approved') {
-                    populateStudentDashboard();
-                    showScreen('studentDashboard');
-                } else if (userData.status === 'pending') {
-                    // FIX: Switched to Firebase v8 auth syntax.
-                    auth.signOut();
-                    loginError.textContent = 'Hesabınız henüz öğretmen tarafından onaylanmadı.';
-                    loginError.classList.remove('hidden');
-                    showScreen('login');
-                } else {
-                     // In case of a weird status
-                     auth.signOut();
-                     loginError.textContent = 'Hesabınız onaylanmamış veya bir sorun var.';
-                     loginError.classList.remove('hidden');
-                     showScreen('login');
-                }
-
-            } else {
-                // User exists in Auth, but not in Firestore. This might happen if registration is interrupted.
-                // Log them out to force a clean state.
-                auth.signOut();
-                loginError.textContent = 'Kullanıcı veritabanında bulunamadı. Lütfen tekrar kayıt olun veya yöneticinize başvurun.';
-                loginError.classList.remove('hidden');
-            }
-        } else {
-            // User is signed out
-            currentUserId = '';
-            currentStudentName = '';
-            
-            showScreen('login');
-            studentInfo.classList.add('hidden');
-            homeButton.classList.add('hidden');
-            backToSelectionButton.classList.add('hidden');
-            saveProgressButton.classList.add('hidden');
-            usernameInput.value = '';
-            passwordInput.value = '';
-            teacherUsernameInput.value = '';
-            teacherPasswordInput.value = '';
+        studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
+        studentInfo.classList.remove('hidden');
+        logoutButton.classList.remove('hidden');
+        
+        if(session.type === 'teacher') {
+            populateTeacherDashboard();
+            setActiveTeacherTab('requests'); // Default to requests
+            showScreen('teacherDashboard');
+        } else { // student
+            populateStudentDashboard();
+            showScreen('studentDashboard');
         }
-    });
+    } else {
+        // No active session
+        showScreen('login');
+        studentInfo.classList.add('hidden');
+        logoutButton.classList.add('hidden');
+        backToSelectionButton.classList.add('hidden');
+        saveProgressButton.classList.add('hidden');
+    }
+
 
     // Initial population of scenarios
     const defaultContainer = document.getElementById('default-scenarios-container')!;
