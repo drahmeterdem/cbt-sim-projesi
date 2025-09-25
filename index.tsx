@@ -1,9 +1,5 @@
 // --- Gemini AI Client and Type Imports ---
 import { GoogleGenAI, Type } from "@google/genai";
-import { auth, db } from './firebase'; // Firebase config import
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "firebase/auth";
-import { doc, getDoc, setDoc, collection, getDocs, addDoc, deleteDoc, query, where, Timestamp } from "firebase/firestore";
-
 
 // --- Type Definitions ---
 interface UserProfile {
