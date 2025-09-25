@@ -60,14 +60,16 @@ const showTeacherLoginView = document.getElementById('show-teacher-login-view')!
 const showStudentLoginView = document.getElementById('show-student-login-view')!;
 const usernameInput = document.getElementById('username-input') as HTMLInputElement;
 const passwordInput = document.getElementById('password-input') as HTMLInputElement;
-const loginButton = document.getElementById('login-button')!;
+// FIX: Cast to HTMLButtonElement to resolve error when accessing 'disabled' property.
+const loginButton = document.getElementById('login-button')! as HTMLButtonElement;
 const registerUsernameInput = document.getElementById('register-username-input') as HTMLInputElement;
 const registerPasswordInput = document.getElementById('register-password-input') as HTMLInputElement;
 const registerConfirmPasswordInput = document.getElementById('register-confirm-password-input') as HTMLInputElement;
 const registerButton = document.getElementById('register-button')!;
 const teacherUsernameInput = document.getElementById('teacher-username-input') as HTMLInputElement;
 const teacherPasswordInput = document.getElementById('teacher-password-input') as HTMLInputElement;
-const teacherLoginButton = document.getElementById('teacher-login-button')!;
+// FIX: Cast to HTMLButtonElement to resolve error when accessing 'disabled' property.
+const teacherLoginButton = document.getElementById('teacher-login-button')! as HTMLButtonElement;
 const loginError = document.getElementById('login-error')!;
 const registerError = document.getElementById('register-error')!;
 const registerSuccess = document.getElementById('register-success')!;
@@ -670,7 +672,9 @@ async function handleLogin(isTeacher: boolean = false) {
     const email = isTeacher ? teacherUsernameInput.value.trim() : usernameInput.value.trim();
     const password = isTeacher ? teacherPasswordInput.value : passwordInput.value;
     const errorElement = isTeacher ? teacherLoginError : loginError;
-    
+    const button = isTeacher ? teacherLoginButton : loginButton;
+    const originalButtonText = button.innerHTML;
+
     errorElement.classList.add('hidden');
 
     if (!email || !password) {
@@ -678,11 +682,17 @@ async function handleLogin(isTeacher: boolean = false) {
         errorElement.classList.remove('hidden');
         return;
     }
+
+    button.disabled = true;
+    button.innerHTML = `
+        <div class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status"></div>
+        <span class="ml-2">Giriş Yapılıyor...</span>
+    `;
     
     try {
         // FIX: Switched to Firebase v8 auth syntax.
         await auth.signInWithEmailAndPassword(email, password);
-        // onAuthStateChanged will handle the rest
+        // onAuthStateChanged will handle the rest, so we don't reset the button here on success.
     } catch (error: any) {
         console.error("Login Error:", error);
         if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
@@ -691,6 +701,9 @@ async function handleLogin(isTeacher: boolean = false) {
             errorElement.textContent = 'Giriş sırasında bir hata oluştu.';
         }
         errorElement.classList.remove('hidden');
+        // Restore button only on error
+        button.disabled = false;
+        button.innerHTML = originalButtonText;
     }
 }
 
@@ -1032,6 +1045,12 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     // FIX: Switched to Firebase v8 auth syntax.
     auth.onAuthStateChanged(async (user) => {
+        // Restore login buttons to their original state in case a user is auto-logged in
+        loginButton.disabled = false;
+        loginButton.innerHTML = `<span>Giriş Yap</span>`;
+        teacherLoginButton.disabled = false;
+        teacherLoginButton.innerHTML = `<span>Giriş Yap</span>`;
+
         if (user) {
             // FIX: Switched to Firebase v8 firestore syntax.
             const userDocRef = db.collection('users').doc(user.uid);
@@ -1039,6 +1058,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (docSnap.exists) {
                 const userData = docSnap.data()!;
+                
+                // This logic needs to know which login was attempted.
+                // We'll add a more specific check. The current logic is mostly correct
+                // but can be confusing for the teacher login flow.
+                const isTryingTeacherLogin = teacherLoginView.classList.contains('hidden') === false;
+
+                if (isTryingTeacherLogin && userData.role !== 'teacher') {
+                    auth.signOut();
+                    teacherLoginError.textContent = 'Bu hesap bir öğretmen hesabı değil.';
+                    teacherLoginError.classList.remove('hidden');
+                    return; // Stop further processing
+                }
+
                 currentUserId = user.uid;
                 currentStudentName = user.displayName || userData.displayName || user.email!;
                 
