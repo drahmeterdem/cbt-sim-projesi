@@ -1,8 +1,9 @@
 // --- Firebase Initialization ---
-// FIX: Updated to Firebase v8 syntax to resolve module import error. The original code was using v9 syntax, which is incompatible with an older Firebase dependency version.
-import firebase from "firebase/app";
-import "firebase/auth";
-import "firebase/firestore";
+// FIX: Updated to Firebase v9 compat syntax to resolve build error.
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import 'firebase/compat/firestore';
+
 
 // TODO: Aşağıdaki yapılandırmayı Firebase projenizdeki ayarlarla değiştirin.
 // Firebase konsolunda, Proje Ayarları > Genel sekmesinde bulabilirsiniz.
