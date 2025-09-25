@@ -114,7 +114,7 @@ const teacherQASystem = {
 // Session Analysis Screen
 const analysis = {
     transcriptInput: document.getElementById('transcript-input') as HTMLTextAreaElement,
-    analyzeButton: document.getElementById('analyze-transcript-button')!,
+    analyzeButton: document.getElementById('analyze-transcript-button')! as HTMLButtonElement,
     output: document.getElementById('analysis-output')!,
     sendButton: document.getElementById('send-to-teacher-button')!,
     backButton: document.getElementById('back-to-dashboard-from-analysis')!,
@@ -487,6 +487,11 @@ function hideModal(modal: 'rationale' | 'summary') {
 // --- Simulation Logic ---
 
 async function getAiResponse() {
+    // @ts-ignore
+    if (!process.env.API_KEY) {
+        simulation.optionsContainer.innerHTML = `<p class="text-red-500 text-center col-span-1 md:col-span-2">Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.</p>`;
+        return;
+    }
     const state = loadState(currentUserId);
     const scenario = getAllScenarios().find(s => s.id === state.simulation.currentScenarioId);
     
@@ -521,7 +526,12 @@ async function getAiResponse() {
         saveState(currentUserId, state);
     } catch (error) {
         console.error("Error generating AI response:", error);
-        simulation.optionsContainer.innerHTML = `<p class="text-red-500 text-center col-span-1 md:col-span-2">${error instanceof Error ? error.message : 'Bilinmeyen bir hata oluştu.'}</p>`;
+        const errorString = String(error);
+        let errorMessage = 'Yapay zeka ile iletişimde bir sorun oluştu.';
+        if (errorString.includes("API_KEY_INVALID") || errorString.includes("API key not valid")) {
+             errorMessage = "Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.";
+        }
+        simulation.optionsContainer.innerHTML = `<p class="text-red-500 text-center col-span-1 md:col-span-2">${errorMessage}</p>`;
     }
 }
 
@@ -837,6 +847,81 @@ function populateStudentDashboard() {
 
 // --- Teacher Dashboard ---
 
+async function handleViewSummary(studentId: string) {
+    // @ts-ignore
+    if (!process.env.API_KEY) {
+        showModal('summary', studentId, '<p class="text-red-500">Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.</p>');
+        return;
+    }
+
+    const state = loadState(studentId);
+    if (state.completedSimulations.length === 0) {
+        showNotification("Bu öğrencinin henüz tamamlanmış bir simülasyonu yok.", 3000, 'error');
+        return;
+    }
+    
+    showModal('summary', studentId, '<div id="summary-loader-content"></div>');
+    const loaderContainer = document.getElementById('summary-loader-content')!;
+    showLoader(loaderContainer, `${studentId} için özet oluşturuluyor...`);
+
+    const combinedHistory = state.completedSimulations.map(sim => {
+        const transcript = sim.history.map((turn: any) => {
+            if (turn.role === 'user') return `Terapist: ${turn.parts[0].text}`;
+            if (turn.role === 'model') {
+                try {
+                    const data = JSON.parse(turn.parts[0].text);
+                    return `Danışan: ${data.clientResponse}`;
+                } catch { return ''; }
+            }
+            return '';
+        }).join('\n');
+        return `--- ${sim.title} SEANSI ---\n${transcript}\n--- SEANS SONU ---`;
+    }).join('\n\n');
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [{ role: 'user', parts: [{ text: combinedHistory }] }],
+            config: {
+                systemInstruction: studentSummarySystemInstruction,
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        overallPerformanceSummary: { type: Type.STRING },
+                        recurringStrengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        patternsForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        actionableSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    },
+                    required: ["overallPerformanceSummary", "recurringStrengths", "patternsForImprovement", "actionableSuggestions"]
+                }
+            }
+        });
+        const data = JSON.parse(response.text);
+        const summaryContent = `
+            <h4>Genel Performans Özeti</h4>
+            <p>${data.overallPerformanceSummary}</p>
+            <h4 class="mt-4">Tekrar Eden Güçlü Yönler</h4>
+            <ul>${data.recurringStrengths.map((s: string) => `<li>${s}</li>`).join('')}</ul>
+            <h4 class="mt-4">Geliştirilmesi Gereken Kalıplar</h4>
+            <ul>${data.patternsForImprovement.map((s: string) => `<li>${s}</li>`).join('')}</ul>
+            <h4 class="mt-4">Eyleme Geçirilebilir Öneriler</h4>
+            <ul>${data.actionableSuggestions.map((s: string) => `<li>${s}</li>`).join('')}</ul>
+        `;
+        showModal('summary', studentId, summaryContent);
+
+    } catch(error) {
+        console.error("Error generating student summary:", error);
+        const errorString = String(error);
+        let errorMessage = "Özet oluşturulurken bir hata oluştu.";
+        if (errorString.includes("API_KEY_INVALID") || errorString.includes("API key not valid")) {
+             errorMessage = "Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.";
+        }
+        showModal('summary', studentId, `<p class="text-red-500">${errorMessage}</p>`);
+    }
+}
+
+
 function handleApprovalAction(event: Event) {
     const target = event.target as HTMLElement;
     const button = target.closest('.approve-button, .reject-button') as HTMLButtonElement | null;
@@ -915,6 +1000,71 @@ function populateTeacherDashboard() {
     teacherDashboard.contents.simulations.innerHTML = simulationsHtml;
 }
 
+// --- Analysis Screen Logic ---
+async function handleAnalyzeTranscript() {
+    const transcript = analysis.transcriptInput.value.trim();
+    if (!transcript) {
+        showNotification("Lütfen analiz için bir transkript girin.", 3000, 'error');
+        return;
+    }
+
+    // @ts-ignore
+    if (!process.env.API_KEY) {
+        analysis.output.innerHTML = `<p class="text-red-500">Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.</p>`;
+        return;
+    }
+
+    showLoader(analysis.output, "Transkript analiz ediliyor...");
+    analysis.analyzeButton.setAttribute('disabled', 'true');
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [{ role: 'user', parts: [{ text: transcript }] }],
+            config: {
+                systemInstruction: analysisSystemInstruction,
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        overallSummary: { type: Type.STRING },
+                        strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        areasForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        keyMomentsAnalysis: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    },
+                    required: ["overallSummary", "strengths", "areasForImprovement", "keyMomentsAnalysis"]
+                }
+            }
+        });
+
+        const data = JSON.parse(response.text);
+        currentAnalysisCache = { transcript, analysis: data }; // Cache the analysis
+
+        analysis.output.innerHTML = `
+            <h4>Genel Özet</h4>
+            <p>${data.overallSummary}</p>
+            <h4 class="mt-4">Güçlü Yönler</h4>
+            <ul>${data.strengths.map((s: string) => `<li>${s}</li>`).join('')}</ul>
+            <h4 class="mt-4">Geliştirilebilecek Alanlar</h4>
+            <ul>${data.areasForImprovement.map((s: string) => `<li>${s}</li>`).join('')}</ul>
+            <h4 class="mt-4">Kritik Anların Analizi</h4>
+            <ul>${data.keyMomentsAnalysis.map((s: string) => `<li>${s}</li>`).join('')}</ul>
+        `;
+        analysis.sendButton.classList.remove('hidden');
+
+    } catch (error) {
+        console.error("Error analyzing transcript:", error);
+        const errorString = String(error);
+        let errorMessage = "Analiz sırasında bir hata oluştu.";
+        if (errorString.includes("API_KEY_INVALID") || errorString.includes("API key not valid")) {
+             errorMessage = "Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.";
+        }
+        analysis.output.innerHTML = `<p class="text-red-500">${errorMessage}</p>`;
+    } finally {
+        analysis.analyzeButton.removeAttribute('disabled');
+    }
+}
+
 
 // --- Other Functions ---
 function archiveCurrentSimulation(studentId: string) {
@@ -989,6 +1139,8 @@ function setupEventListeners() {
     backToSelectionButton.addEventListener('click', () => showScreen('problemSelection'));
     goToAnalysisButton.addEventListener('click', () => showScreen('sessionAnalysis'));
     analysis.backButton.addEventListener('click', () => showScreen('studentDashboard'));
+    analysis.analyzeButton.addEventListener('click', handleAnalyzeTranscript);
+
 
     teacherDashboard.tabs.forEach(tab => {
         tab.addEventListener('click', () => {
@@ -998,6 +1150,19 @@ function setupEventListeners() {
     });
     
     teacherDashboard.contents.requests.addEventListener('click', handleApprovalAction);
+    teacherDashboard.contents.simulations.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement;
+        const summaryButton = target.closest('.view-summary-button');
+        const sessionsButton = target.closest('.view-sessions-button');
+
+        if (summaryButton) {
+            const studentId = (summaryButton as HTMLElement).dataset.studentId;
+            if (studentId) {
+                handleViewSummary(studentId);
+            }
+        }
+        // TODO: Handle view sessions button
+    });
 
 
     rationaleModal.closeButton.addEventListener('click', () => hideModal('rationale'));
