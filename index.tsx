@@ -1,15 +1,11 @@
 // --- Gemini AI Client and Type Imports ---
 import { GoogleGenAI, Type } from "@google/genai";
+import { auth, db } from './firebase'; // Firebase config import
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "firebase/auth";
+import { doc, getDoc, setDoc, collection, getDocs, updateDoc, deleteDoc, query, where, Timestamp } from "firebase/firestore";
+
 
 // --- Type Definitions ---
-interface UserProfile {
-    uid: string;
-    email: string;
-    displayName: string;
-    role: 'student' | 'teacher';
-    status: 'pending' | 'approved';
-}
-
 interface Scenario {
     id: string;
     title: string;
@@ -26,10 +22,14 @@ interface Resource {
     associatedScenarioIds: string[];
 }
 
-// --- App State ---
-let currentUserId: string | null = null;
-let currentUserProfile: UserProfile | null = null;
-let reviewingStudentId: string | null = null;
+// --- Gemini AI Client Initialization ---
+// @ts-ignore
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+
+// --- Global State ---
+let currentStudentName: string = '';
+let currentUserId: string = ''; // Firebase UID
+let reviewingStudentName: string = '';
 let currentScreen: keyof typeof screens | null = null;
 let activeTeacherTab: string = 'simulations';
 let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
@@ -59,8 +59,7 @@ const showLoginView = document.getElementById('show-login-view')!;
 const usernameInput = document.getElementById('username-input') as HTMLInputElement;
 const passwordInput = document.getElementById('password-input') as HTMLInputElement;
 const loginButton = document.getElementById('login-button')!;
-const registerDisplayNameInput = document.getElementById('register-display-name-input') as HTMLInputElement;
-const registerEmailInput = document.getElementById('register-email-input') as HTMLInputElement;
+const registerUsernameInput = document.getElementById('register-username-input') as HTMLInputElement;
 const registerPasswordInput = document.getElementById('register-password-input') as HTMLInputElement;
 const registerConfirmPasswordInput = document.getElementById('register-confirm-password-input') as HTMLInputElement;
 const registerButton = document.getElementById('register-button')!;
@@ -189,7 +188,7 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 1.  **overallSummary:** Seansın genel bir değerlendirmesi ve ana teması hakkında kısa bir özet.
 2.  **strengths:** Terapistin seans boyunca sergilediği güçlü yönler (örn: etkili empati kullanımı, doğru yeniden yapılandırma tekniği, güçlü terapötik ittifak). Maddeler halinde listele.
 3.  **areasForImprovement:** Terapistin geliştirebileceği alanlar (örn: daha açık uçlu sorular sorma, Sokratik sorgulamayı derinleştirme, danışanın otomatik düşüncelerini daha net belirleme). Maddeler halinde listele.
-4.  **keyMomentsAnalysis:** Transkriptteki 2-3 kritik anı belirle. Bu anlarda terapistin müdahalesini, bu müdahalesinin potentsiyel etkilerini ve alternatif yaklaşımları analiz et.`;
+4.  **keyMomentsAnalysis:** Transkriptteki 2-3 kritik anı belirle. Bu anlarda terapistin müdahalesini, bu müdahalesinin potansiyel etkilerini ve alternatif yaklaşımları analiz et.`;
 
 const studentSummarySystemInstruction = `Sen, BDT alanında uzman bir eğitim süpervizörüsün. Sana bir öğrencinin birden fazla simülasyon seansındaki konuşma kayıtları verilecek. Görevin, bu kayıtlara dayanarak öğrencinin genel performansı hakkında kapsamlı bir özet ve yapıcı geri bildirim oluşturmaktır.
 
@@ -200,11 +199,7 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 4.  **actionableSuggestions:** Öğrencinin gelişimini desteklemek için 2-3 adet somut, eyleme geçirilebilir öneri (örn: "Sokratik sorgulama tekniğini daha derinden keşfetmek için 'X' senaryosunu tekrar deneyebilir.", "Danışan direnciyle karşılaştığında verdiği tepkileri gözden geçirmesi faydalı olacaktır.").`;
 
 
-// --- Firebase Data Management ---
-
-function getStudentStateDocRef(studentId: string) {
-    return doc(db, 'studentStates', studentId);
-}
+// --- User & State Management ---
 
 function getInitialState() {
     return {
@@ -223,19 +218,17 @@ function getInitialState() {
     };
 }
 
-async function saveState(studentId: string, state: object) {
+function saveState(studentId: string, state: object) {
     if (!studentId) return;
-    await setDoc(getStudentStateDocRef(studentId), state, { merge: true });
+    localStorage.setItem(`cbt_sim_state_v4_${studentId}`, JSON.stringify(state));
 }
 
-async function loadState(studentId: string): Promise<ReturnType<typeof getInitialState>> {
-    const docRef = getStudentStateDocRef(studentId);
-    const docSnap = await getDoc(docRef);
+function loadState(studentId: string): ReturnType<typeof getInitialState> {
+    const savedState = localStorage.getItem(`cbt_sim_state_v4_${studentId}`);
     const initialState = getInitialState();
-
-    if (docSnap.exists()) {
-        const parsedState = docSnap.data();
-         return {
+    if (savedState) {
+        const parsedState = JSON.parse(savedState);
+        return {
             ...initialState,
             ...parsedState,
             simulation: { ...initialState.simulation, ...(parsedState.simulation || {}) },
@@ -244,10 +237,8 @@ async function loadState(studentId: string): Promise<ReturnType<typeof getInitia
             completedSimulations: parsedState.completedSimulations || initialState.completedSimulations,
             achievements: parsedState.achievements || initialState.achievements,
         };
-    } else {
-        await setDoc(docRef, initialState);
-        return initialState;
     }
+    return initialState;
 }
 
 // --- Scenarios Management ---
@@ -260,39 +251,25 @@ const defaultScenarios: Scenario[] = [
     { id: 'default_depression', title: 'Depresif Duygudurum', description: 'Hayattan keyif alamama, sürekli yorgunluk ve umutsuzluk hisleriyle başa çıkmaya çalışan bir danışan.', isCustom: false },
 ];
 
-async function getCustomScenarios(): Promise<Scenario[]> {
-    const q = query(collection(db, "scenarios"));
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Scenario));
+function getCustomScenarios(): Scenario[] {
+    return JSON.parse(localStorage.getItem('cbt_sim_custom_scenarios_v2') || '[]');
 }
 
-async function saveCustomScenario(scenario: Omit<Scenario, 'id' | 'isCustom'>): Promise<string> {
-    const docRef = await addDoc(collection(db, "scenarios"), { ...scenario, isCustom: true });
-    return docRef.id;
+function saveCustomScenarios(scenarios: Scenario[]) {
+    localStorage.setItem('cbt_sim_custom_scenarios_v2', JSON.stringify(scenarios));
 }
 
-async function deleteCustomScenario(id: string) {
-    await deleteDoc(doc(db, "scenarios", id));
-}
-
-async function getAllScenarios(): Promise<Scenario[]> {
-    const custom = await getCustomScenarios();
-    return [...defaultScenarios, ...custom];
+function getAllScenarios(): Scenario[] {
+    return [...defaultScenarios, ...getCustomScenarios()];
 }
 
 // --- Resource Library Management ---
-async function getResourceLibrary(): Promise<Resource[]> {
-     const q = query(collection(db, "resources"));
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Resource));
+function getResourceLibrary(): Resource[] {
+    return JSON.parse(localStorage.getItem('cbt_sim_resource_library') || '[]');
 }
 
-async function saveResource(resource: Omit<Resource, 'id'>) {
-    await addDoc(collection(db, "resources"), resource);
-}
-
-async function deleteResource(id: string) {
-     await deleteDoc(doc(db, "resources", id));
+function saveResourceLibrary(resources: Resource[]) {
+    localStorage.setItem('cbt_sim_resource_library', JSON.stringify(resources));
 }
 
 
@@ -309,8 +286,8 @@ const ALL_ACHIEVEMENTS = [
     { id: 'analyst', name: 'Analist', description: 'İlk harici seansını analiz ettin.', icon: 'science', criteria: (state: ReturnType<typeof getInitialState>) => state.uploadedSessions.length >= 1 },
 ];
 
-async function checkAndAwardAchievements(studentId: string) {
-    const state = await loadState(studentId);
+function checkAndAwardAchievements(studentId: string) {
+    const state = loadState(studentId);
     let newAchievements = false;
     ALL_ACHIEVEMENTS.forEach(ach => {
         if (!state.achievements.includes(ach.id) && ach.criteria(state)) {
@@ -320,7 +297,7 @@ async function checkAndAwardAchievements(studentId: string) {
         }
     });
     if (newAchievements) {
-        await saveState(studentId, state);
+        saveState(studentId, state);
     }
 }
 
@@ -475,9 +452,10 @@ function showLoader(container: HTMLElement, message: string) {
     `;
 }
 
-function showNotification(message: string, duration: number = 3000) {
+function showNotification(message: string, duration: number = 3000, type: 'success' | 'error' = 'success') {
     const notification = document.createElement('div');
-    notification.className = 'bg-green-600 text-white font-semibold py-2 px-4 rounded-lg shadow-lg animate-fade-in-up';
+    const bgColor = type === 'success' ? 'bg-green-600' : 'bg-red-600';
+    notification.className = `${bgColor} text-white font-semibold py-2 px-4 rounded-lg shadow-lg animate-fade-in-up`;
     notification.textContent = message;
     notificationContainer.appendChild(notification);
     setTimeout(() => {
@@ -508,27 +486,9 @@ function hideModal(modal: 'rationale' | 'summary') {
 
 // --- Simulation Logic ---
 
-async function callApiProxy(endpoint: string, body: object) {
-    const response = await fetch(`/.netlify/functions/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'API proxy error');
-    }
-
-    return response.json();
-}
-
-
 async function getAiResponse() {
-    if (!currentUserId) return;
-    const state = await loadState(currentUserId);
-    const allScenarios = await getAllScenarios();
-    const scenario = allScenarios.find(s => s.id === state.simulation.currentScenarioId);
+    const state = loadState(currentUserId);
+    const scenario = getAllScenarios().find(s => s.id === state.simulation.currentScenarioId);
     
     showLoader(simulation.optionsContainer, "Elif düşünüyor...");
 
@@ -538,16 +498,19 @@ async function getAiResponse() {
     }
 
     try {
-        const payload = {
-            history: [...state.simulation.conversationHistory.filter((h: any) => h.role !== 'teacher_feedback').map(h => ({role: h.role, parts: h.parts}))],
-            systemInstruction: dynamicSystemInstruction,
-            schema: {
-                type: Type.OBJECT, properties: { clientResponse: { type: Type.STRING }, feedback: { type: Type.STRING }, rationale: { type: Type.STRING }, scoring: { type: Type.OBJECT, properties: { empathy: { type: Type.NUMBER }, technique: { type: Type.NUMBER }, rapport: { type: Type.NUMBER }, }, required: ["empathy", "technique", "rapport"], }, clientImpact: { type: Type.OBJECT, properties: { emotionalRelief: { type: Type.NUMBER }, cognitiveClarity: { type: Type.NUMBER }, }, required: ["emotionalRelief", "cognitiveClarity"], }, therapistOptions: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, description: { type: Type.STRING }, }, required: ["title", "description"], }, }, }, required: ["clientResponse", "feedback", "rationale", "scoring", "clientImpact", "therapistOptions"],
-            }
-        };
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [...state.simulation.conversationHistory.filter((h: any) => h.role !== 'teacher_feedback').map(h => ({role: h.role, parts: h.parts}))],
+            config: {
+                systemInstruction: dynamicSystemInstruction,
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT, properties: { clientResponse: { type: Type.STRING }, feedback: { type: Type.STRING }, rationale: { type: Type.STRING }, scoring: { type: Type.OBJECT, properties: { empathy: { type: Type.NUMBER }, technique: { type: Type.NUMBER }, rapport: { type: Type.NUMBER }, }, required: ["empathy", "technique", "rapport"], }, clientImpact: { type: Type.OBJECT, properties: { emotionalRelief: { type: Type.NUMBER }, cognitiveClarity: { type: Type.NUMBER }, }, required: ["emotionalRelief", "cognitiveClarity"], }, therapistOptions: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, description: { type: Type.STRING }, }, required: ["title", "description"], }, }, }, required: ["clientResponse", "feedback", "rationale", "scoring", "clientImpact", "therapistOptions"],
+                },
+            },
+        });
 
-        const data = await callApiProxy('gemini-proxy', payload);
-
+        const data = JSON.parse(response.text);
         const turnId = `turn_${Date.now()}`;
         state.simulation.conversationHistory.push({ id: turnId, role: 'model', parts: [{ text: JSON.stringify(data) }], teacherComment: '' });
         appendMessage(simulation.chatContainer, 'client', data.clientResponse, { rationale: data.rationale, turnId });
@@ -555,7 +518,7 @@ async function getAiResponse() {
         simulation.feedbackText.textContent = data.feedback;
         updateGraphs(simulation.feedbackSection, data.scoring, data.clientImpact, data.feedback);
 
-        await saveState(currentUserId, state);
+        saveState(currentUserId, state);
     } catch (error) {
         console.error("Error generating AI response:", error);
         simulation.optionsContainer.innerHTML = `<p class="text-red-500 text-center col-span-1 md:col-span-2">${error instanceof Error ? error.message : 'Bilinmeyen bir hata oluştu.'}</p>`;
@@ -563,7 +526,6 @@ async function getAiResponse() {
 }
 
 async function handleOptionSelect(event: Event) {
-    if (!currentUserId) return;
     const target = event.target as HTMLElement;
     const button = target.closest('.option-button') as HTMLButtonElement | null;
     if (!button) return;
@@ -572,26 +534,26 @@ async function handleOptionSelect(event: Event) {
     const turnId = `turn_${Date.now()}`;
     appendMessage(simulation.chatContainer, 'therapist', therapistMessage, { turnId });
     
-    const state = await loadState(currentUserId);
+    const state = loadState(currentUserId);
     state.simulation.conversationHistory.push({ id: turnId, role: 'user', parts: [{ text: therapistMessage }], teacherComment: '' });
-    await saveState(currentUserId, state);
+    saveState(currentUserId, state);
     
     simulation.feedbackSection.classList.add('hidden');
     await getAiResponse();
 }
 
 async function startSimulation(scenarioId: string) {
-    if (!currentUserId) return;
-    const allScenarios = await getAllScenarios();
-    const scenario = allScenarios.find(s => s.id === scenarioId);
+    const scenario = getAllScenarios().find(s => s.id === scenarioId);
     if (!scenario) return;
 
-    const oldState = await loadState(currentUserId);
+    // If there's an unfinished simulation, archive it before starting a new one.
+    const oldState = loadState(currentUserId);
     if (oldState.simulation && oldState.simulation.currentProblem) {
-        await archiveCurrentSimulation(currentUserId);
+        archiveCurrentSimulation(currentUserId);
     }
 
-    const state = await loadState(currentUserId);
+    // Proceed with the new simulation, loading the state again as it has been modified.
+    const state = loadState(currentUserId);
     state.simulation.currentProblem = scenario.title;
     state.simulation.currentScenarioId = scenario.id;
     state.simulation.conversationHistory = []; // Start fresh
@@ -608,7 +570,7 @@ async function startSimulation(scenarioId: string) {
 
     const turnId = `turn_${Date.now()}`;
     state.simulation.conversationHistory.push({ id: turnId, role: 'user', parts: [{ text: `Merhaba, bugün ${scenario.title} üzerine konuşmak için buradayım. Lütfen danışan olarak başla.` }], teacherComment: '' });
-    await saveState(currentUserId, state);
+    saveState(currentUserId, state);
     await getAiResponse();
 }
 
@@ -643,16 +605,15 @@ function rebuildUiFromState(container: HTMLElement, history: any[], isReview: bo
 // --- Login, Register & Logout ---
 
 async function handleRegister() {
-    const displayName = registerDisplayNameInput.value.trim();
-    const email = registerEmailInput.value.trim();
+    const email = registerUsernameInput.value.trim();
     const password = registerPasswordInput.value;
     const confirmPassword = registerConfirmPasswordInput.value;
-    
+
     registerError.classList.add('hidden');
     registerSuccess.classList.add('hidden');
 
-    if (!displayName || !email || !password) {
-        registerError.textContent = 'Tüm alanlar zorunludur.';
+    if (!email || !password) {
+        registerError.textContent = 'E-posta ve şifre boş bırakılamaz.';
         registerError.classList.remove('hidden');
         return;
     }
@@ -665,22 +626,19 @@ async function handleRegister() {
     try {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
-        
-        await updateProfile(user, { displayName });
+        const displayName = email.split('@')[0];
 
-        const userProfile: UserProfile = {
-            uid: user.uid,
-            email: user.email!,
+        await updateProfile(user, { displayName });
+        await setDoc(doc(db, "users", user.uid), {
             displayName: displayName,
-            role: 'student',
-            status: 'pending'
-        };
-        await setDoc(doc(db, "users", user.uid), userProfile);
+            email: user.email,
+            status: 'pending',
+            createdAt: Timestamp.now()
+        });
 
         registerSuccess.textContent = 'Kayıt başarılı! Öğretmeninizin onayı sonrası giriş yapabilirsiniz.';
         registerSuccess.classList.remove('hidden');
-        registerDisplayNameInput.value = '';
-        registerEmailInput.value = '';
+        registerUsernameInput.value = '';
         registerPasswordInput.value = '';
         registerConfirmPasswordInput.value = '';
 
@@ -689,35 +647,18 @@ async function handleRegister() {
             loginView.classList.remove('hidden');
         }, 3000);
 
-    } catch(error: any) {
-        console.error("Registration Error: ", error);
-        if (error.code === 'auth/email-already-in-use') {
-            registerError.textContent = 'Bu e-posta adresi zaten kullanılıyor.';
-        } else {
-            registerError.textContent = 'Kayıt sırasında bir hata oluştu.';
-        }
+    } catch (error: any) {
+        console.error("Registration Error:", error);
+        registerError.textContent = error.message || 'Kayıt sırasında bir hata oluştu.';
         registerError.classList.remove('hidden');
     }
 }
 
-async function logout() {
-    await signOut(auth);
-    showScreen('login');
-    studentInfo.classList.add('hidden');
-    homeButton.classList.add('hidden');
-    backToSelectionButton.classList.add('hidden');
-    saveProgressButton.classList.add('hidden');
-    currentUserId = null;
-    currentUserProfile = null;
-    reviewingStudentId = null;
-    usernameInput.value = '';
-    passwordInput.value = '';
-    teacherPasswordInput.value = '';
-    teacherLoginForm.classList.add('hidden');
-    loginError.classList.add('hidden');
-    registerError.classList.add('hidden');
-    registerSuccess.classList.add('hidden');
+
+function logout() {
+    signOut(auth).catch(error => console.error("Logout Error:", error));
 }
+
 
 async function handleLogin() {
     const email = usernameInput.value.trim();
@@ -730,13 +671,17 @@ async function handleLogin() {
         loginError.classList.remove('hidden');
         return;
     }
-
+    
     try {
         await signInWithEmailAndPassword(auth, email, password);
         // onAuthStateChanged will handle the rest
-    } catch(error: any) {
-        console.error("Login Error: ", error);
-        loginError.textContent = 'Geçersiz e-posta veya şifre.';
+    } catch (error: any) {
+        console.error("Login Error:", error);
+        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+            loginError.textContent = 'Geçersiz e-posta veya şifre.';
+        } else {
+            loginError.textContent = 'Giriş sırasında bir hata oluştu.';
+        }
         loginError.classList.remove('hidden');
     }
 }
@@ -766,11 +711,10 @@ function calculateAverageScores(history: any[]) {
     };
 }
 
-async function generateAndDisplayRecommendations(studentId: string) {
-    if(!studentId) return;
-    const state = await loadState(studentId);
+function generateAndDisplayRecommendations(studentId: string) {
+    const state = loadState(studentId);
     const container = recommendations.container;
-    const allResources = await getResourceLibrary();
+    const allResources = getResourceLibrary();
     let recommendationsHtml = '';
 
     // Recommendation 1: Based on last completed session's associated resources
@@ -792,798 +736,181 @@ async function generateAndDisplayRecommendations(studentId: string) {
     const overallScores = calculateAverageScores(allHistory);
     if (allHistory.length > 0 && overallScores.technique < 6) {
          recommendationsHtml += `<div class="p-3 bg-amber-50 rounded-lg">
-                <p class="font-semibold text-gray-700">AI Analizi:</p>
-                <p class="text-sm text-gray-600 mt-1">BDT tekniği uygulama puanların genel olarak geliştirilebilir görünüyor. Pratik yapmak için öğretmeninin oluşturduğu özel senaryoları denemeni öneririz!</p>
+            <p class="font-semibold text-gray-700">BDT tekniği puanın ortalamanın altında görünüyor. Belki bu kaynak yardımcı olabilir:</p>
+            <ul class="list-disc list-inside mt-2 text-sm">
+                <li><a href="#" target="_blank" class="text-indigo-600 hover:underline">Sokratik Sorgulama Derinlemesine Bakış (Makale)</a></li>
+            </ul>
+        </div>`;
+    }
+
+    container.innerHTML = recommendationsHtml || '<p class="text-center text-gray-500">Henüz size özel bir öneri bulunmuyor.</p>';
+}
+
+function displayAchievements(studentId: string) {
+    const state = loadState(studentId);
+    const container = achievements.container;
+    container.innerHTML = ALL_ACHIEVEMENTS.map(ach => {
+        const earned = state.achievements.includes(ach.id);
+        return `
+            <div class="flex flex-col items-center p-2 rounded-lg ${earned ? 'bg-amber-100' : 'bg-gray-100'}">
+                <span class="material-symbols-outlined text-4xl ${earned ? 'text-amber-500' : 'text-gray-400'}">${ach.icon}</span>
+                <p class="font-semibold text-xs mt-1 ${earned ? 'text-amber-800' : 'text-gray-500'}" title="${ach.description}">${ach.name}</p>
+            </div>
+        `;
+    }).join('');
+}
+
+
+function populateStudentDashboard() {
+    if (!currentUserId) return;
+    const state = loadState(currentUserId);
+    dashboardStudentName.textContent = currentStudentName;
+
+    // Continue session card
+    if (state.simulation.currentProblem) {
+        continueSessionCard.innerHTML = `
+            <span class="material-symbols-outlined text-5xl text-[var(--primary-color)] mb-3">play_circle</span>
+            <h3 class="text-xl font-bold text-gray-800">Devam Et: ${state.simulation.currentProblem}</h3>
+            <p class="text-gray-600 mt-2 mb-4">Kaldığın yerden simülasyona devam et.</p>
+            <button id="resume-simulation-button" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg">
+                <span>Devam Et</span>
+            </button>`;
+        document.getElementById('resume-simulation-button')?.addEventListener('click', () => {
+            simulation.problemDisplay.textContent = state.simulation.currentProblem;
+            showScreen('simulation');
+            backToSelectionButton.classList.remove('hidden');
+            saveProgressButton.classList.remove('hidden');
+            const lastModelResponse = rebuildUiFromState(simulation.chatContainer, state.simulation.conversationHistory);
+            if (lastModelResponse) {
+                displayOptions(lastModelResponse.therapistOptions);
+                updateGraphs(simulation.feedbackSection, lastModelResponse.scoring, lastModelResponse.clientImpact, lastModelResponse.feedback);
+            }
+        });
+    } else {
+        continueSessionCard.innerHTML = `
+            <span class="material-symbols-outlined text-5xl text-pink-500 mb-3">psychology</span>
+            <h3 class="text-xl font-bold text-gray-800">Yeni Simülasyon</h3>
+            <p class="text-gray-600 mt-2 mb-4">Yeni bir BDT simülasyonu başlatarak becerilerini geliştir.</p>
+            <button id="start-new-simulation-button" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-pink-500 text-white font-semibold hover:bg-pink-600 transition-all duration-300 shadow-md hover:shadow-lg">
+                <span>Başla</span>
+            </button>`;
+        document.getElementById('start-new-simulation-button')?.addEventListener('click', () => showScreen('problemSelection'));
+    }
+
+    // Progress tracking
+    if (state.simulation.currentProblem) {
+        const currentScores = calculateAverageScores(state.simulation.conversationHistory);
+        updateGraphs(progressTracking.container, currentScores, { emotionalRelief: 0, cognitiveClarity: 0 }, "Mevcut seans ortalama puanların.");
+    } else {
+        progressTracking.container.innerHTML = '<p class="text-center text-gray-500">Aktif bir seans bulunmuyor.</p>';
+    }
+
+    // Cumulative progress
+    const allHistory = state.completedSimulations.flatMap(s => s.history || []);
+    if (allHistory.length > 0) {
+        const cumulativeScores = calculateAverageScores(allHistory);
+        updateGraphs(cumulativeProgress.container, cumulativeScores, { emotionalRelief: 0, cognitiveClarity: 0 }, "Tüm tamamlanan seansların ortalama puanları.");
+    } else {
+        cumulativeProgress.container.innerHTML = '<p class="text-center text-gray-500">Henüz tamamlanmış seans yok.</p>';
+    }
+    
+    // Recommendations & Achievements
+    generateAndDisplayRecommendations(currentUserId);
+    displayAchievements(currentUserId);
+
+    // QA History
+    teacherQASystem.history.innerHTML = ''; // Populate this from state
+}
+
+
+// --- Teacher Dashboard ---
+
+async function populateTeacherDashboard() {
+    // Tab 1: Simulations
+    const allStudentIds = JSON.parse(localStorage.getItem('cbt_sim_all_student_ids') || '[]');
+    let simulationsHtml = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
+    for (const studentId of allStudentIds) {
+        const studentState = loadState(studentId);
+        // This part needs student name which we don't have easily without another DB lookup
+        // For now, let's use a placeholder. In a real app, we'd store student names.
+        const studentName = studentId.substring(0, 8); // Placeholder
+        const completedCount = studentState.completedSimulations.length;
+        simulationsHtml += `
+             <div class="bg-white/80 p-5 rounded-xl shadow-lg">
+                <h4 class="font-bold text-lg text-gray-800">${studentName}</h4>
+                <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
+                <div class="mt-4 flex gap-2">
+                    <button data-student-id="${studentId}" class="view-sessions-button flex-1 bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors text-sm font-semibold">Seansları Görüntüle</button>
+                    <button data-student-id="${studentId}" class="view-summary-button bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 transition-colors text-sm font-semibold">AI Özet</button>
+                </div>
             </div>`;
     }
+    simulationsHtml += '</div>';
+    teacherDashboard.contents.simulations.innerHTML = simulationsHtml;
 
-    if (recommendationsHtml === '') {
-        container.innerHTML = `<p class="text-center text-gray-500 py-4">Sana özel öneriler burada görünecek.</p>`;
-    } else {
-        container.innerHTML = recommendationsHtml;
-    }
-}
 
-
-async function populateStudentDashboard() {
-    if (!currentUserId || !currentUserProfile) return;
-    dashboardStudentName.textContent = currentUserProfile.displayName;
-    const state = await loadState(currentUserId);
-
-    // Card 1: Continue Session
-    continueSessionCard.innerHTML = ''; // Clear previous content
-    if (state.simulation && state.simulation.currentProblem) {
-        continueSessionCard.innerHTML = `
-            <span class="material-symbols-outlined text-5xl text-indigo-500 mb-3">play_circle</span>
-            <h3 class="text-xl font-bold text-gray-800">Devam Eden Seans</h3>
-            <p class="text-gray-600 mt-2 mb-4">"${state.simulation.currentProblem}" konulu seansınıza kaldığınız yerden devam edin.</p>`;
-        
-        const button = document.createElement('button');
-        button.className = "w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg";
-        button.innerHTML = `<span>Devam Et</span>`;
-        button.addEventListener('click', continueSimulation);
-        continueSessionCard.appendChild(button);
-    } else {
-        continueSessionCard.innerHTML = `
-            <span class="material-symbols-outlined text-5xl text-indigo-500 mb-3">add_circle</span>
-            <h3 class="text-xl font-bold text-gray-800">Yeni Simülasyon</h3>
-            <p class="text-gray-600 mt-2 mb-4">Pratik yapmak için yeni bir BDT simülasyonu başlatın.</p>`;
-
-        const button = document.createElement('button');
-        button.className = "w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg";
-        button.innerHTML = `<span>Yeni Seans Başlat</span>`;
-        button.addEventListener('click', async () => {
-            await renderProblemSelectionScreen();
-            showScreen('problemSelection');
-        });
-        continueSessionCard.appendChild(button);
-    }
-
-    // Card 2: Current Session Progress Tracking
-    const avgScores = calculateAverageScores(state.simulation.conversationHistory);
-    if (state.simulation.conversationHistory.length > 0) { 
-        progressTracking.card.classList.remove('hidden');
-        progressTracking.container.innerHTML = `
-            <div class="w-full"><span class="text-xs font-medium text-gray-500">Empati</span><div class="h-4 bg-gray-200 rounded-full mt-1"><div class="h-4 rounded-full bg-fuchsia-400 chart-bar" style="width: ${avgScores.empathy * 10}%;">${avgScores.empathy.toFixed(1)}</div></div></div>
-            <div class="w-full"><span class="text-xs font-medium text-gray-500">BDT Tekniği</span><div class="h-4 bg-gray-200 rounded-full mt-1"><div class="h-4 rounded-full bg-amber-400 chart-bar" style="width: ${avgScores.technique * 10}%;">${avgScores.technique.toFixed(1)}</div></div></div>
-            <div class="w-full"><span class="text-xs font-medium text-gray-500">İlişki Kurma</span><div class="h-4 bg-gray-200 rounded-full mt-1"><div class="h-4 rounded-full bg-teal-400 chart-bar" style="width: ${avgScores.rapport * 10}%;">${avgScores.rapport.toFixed(1)}</div></div></div>
-        `;
-    } else {
-        progressTracking.container.innerHTML = `<p class="text-center text-gray-500 py-4">Grafikleri görmek için bir simülasyonu tamamlayın.</p>`;
-    }
-
-    // Card 3: Cumulative Progress
-    if (state.completedSimulations.length > 0) {
-        cumulativeProgress.card.classList.remove('hidden');
-        let chartHtml = '<div class="space-y-2">';
-        state.completedSimulations.forEach((sim, index) => {
-            chartHtml += `
-                <div>
-                    <p class="text-sm font-semibold text-gray-700">${index + 1}. ${sim.title}</p>
-                    <div class="flex items-center gap-2 text-xs mt-1">
-                        <span class="w-16 text-gray-500">Empati:</span><div class="h-3 flex-1 bg-gray-200 rounded-full"><div class="h-3 rounded-full bg-fuchsia-400" style="width: ${sim.finalScores.empathy * 10}%"></div></div>
-                        <span class="w-16 text-gray-500">Teknik:</span><div class="h-3 flex-1 bg-gray-200 rounded-full"><div class="h-3 rounded-full bg-amber-400" style="width: ${sim.finalScores.technique * 10}%"></div></div>
-                        <span class="w-16 text-gray-500">İlişki:</span><div class="h-3 flex-1 bg-gray-200 rounded-full"><div class="h-3 rounded-full bg-teal-400" style="width: ${sim.finalScores.rapport * 10}%"></div></div>
-                    </div>
-                </div>
-            `;
-        });
-        chartHtml += '</div>';
-        cumulativeProgress.container.innerHTML = chartHtml;
-    } else {
-        cumulativeProgress.container.innerHTML = `<p class="text-center text-gray-500 py-4">Genel gelişiminizi görmek için en az bir simülasyonu tamamlayın.</p>`;
-    }
-
-    // Section 4: Achievements
-    achievements.container.innerHTML = '';
-    const earnedAchievements = ALL_ACHIEVEMENTS.filter(ach => state.achievements.includes(ach.id));
-    if(earnedAchievements.length > 0) {
-        earnedAchievements.forEach(ach => {
-            achievements.container.innerHTML += `
-                <div class="flex flex-col items-center group cursor-pointer">
-                    <span class="material-symbols-outlined text-4xl text-amber-400 group-hover:text-amber-500 transition-colors">${ach.icon}</span>
-                    <p class="text-xs text-gray-600 font-semibold mt-1">${ach.name}</p>
-                    <p class="text-xs text-gray-500 text-center">${ach.description}</p>
-                </div>
-            `;
-        });
-    } else {
-        achievements.container.innerHTML = `<p class="col-span-3 text-center text-gray-500 py-4">Rozet kazanmak için simülasyonları tamamlayın!</p>`;
-    }
-
-    // Section 5: Smart Recommendations
-    await generateAndDisplayRecommendations(currentUserId);
-
-
-    // Section 6: Teacher Q&A
-    teacherQASystem.history.innerHTML = '';
-    const allComms = [
-        ...state.teacherComms.questions.map(q => ({ ...q, type: 'student_question' })),
-        ...state.teacherComms.answers.map(a => ({ ...a, type: 'teacher_answer', timestamp: a.timestamp }))
-    ].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-    if (allComms.length === 0) {
-        teacherQASystem.history.innerHTML = `<p class="text-center text-gray-500 py-8">Öğretmeninize bir soru sorarak iletişimi başlatın.</p>`;
-    } else {
-        allComms.forEach(comm => {
-            appendMessage(teacherQASystem.history, comm.type as any, comm.text);
-        });
-    }
-}
-
-async function continueSimulation() {
-    if (!currentUserId) return;
-    const state = await loadState(currentUserId);
-    simulation.problemDisplay.textContent = state.simulation.currentProblem;
-    
-    const lastModelResponse = rebuildUiFromState(simulation.chatContainer, state.simulation.conversationHistory);
-    if (lastModelResponse) {
-        displayOptions(lastModelResponse.therapistOptions);
-        simulation.feedbackText.textContent = lastModelResponse.feedback;
-        updateGraphs(simulation.feedbackSection, lastModelResponse.scoring, lastModelResponse.clientImpact, lastModelResponse.feedback);
-    }
-    
-    showScreen('simulation');
-    backToSelectionButton.classList.remove('hidden');
-    saveProgressButton.classList.remove('hidden');
-}
-
-async function handleAskTeacher() {
-    if (!currentUserId) return;
-    const questionText = teacherQASystem.input.value.trim();
-    if (!questionText) return;
-
-    const state = await loadState(currentUserId);
-    const newQuestion = {
-        id: `q_${Date.now()}`,
-        text: questionText,
-        timestamp: new Date().toISOString()
-    };
-    state.teacherComms.questions.push(newQuestion);
-    await saveState(currentUserId, state);
-    await checkAndAwardAchievements(currentUserId); // Check for curious_mind achievement
-    
-    teacherQASystem.input.value = '';
-    await populateStudentDashboard(); // Refresh UI
-    showNotification("Sorunuz öğretmeninize iletildi!");
-}
-
-async function renderProblemSelectionScreen() {
-    const defaultContainer = document.getElementById('default-scenarios-container')!;
-    const customContainer = document.getElementById('custom-scenarios-container')!;
-    const customSection = document.getElementById('custom-scenarios-section')!;
-
-    defaultContainer.innerHTML = '';
-    customContainer.innerHTML = '';
-
-    const scenarios = await getAllScenarios();
-    const customScenarios = scenarios.filter(s => s.isCustom);
-
-    scenarios.forEach(scenario => {
-        const button = document.createElement('button');
-        button.className = 'option-button problem-button relative group';
-        button.dataset.scenarioId = scenario.id;
-        button.innerHTML = `
-            ${scenario.isCustom ? '<span class="absolute top-2 right-2 text-xs bg-amber-500 text-white font-semibold px-2 py-1 rounded-full">Öğretmen</span>' : ''}
-            <span class="font-semibold block">${scenario.title}</span>
-            <span class="text-sm text-gray-500 group-hover:text-indigo-100">${scenario.description}</span>
-        `;
-        if(scenario.isCustom) {
-            customContainer.appendChild(button);
-        } else {
-            defaultContainer.appendChild(button);
-        }
-    });
-    
-    if (customScenarios.length > 0) {
-        customSection.classList.remove('hidden');
-    } else {
-        customSection.classList.add('hidden');
-    }
-}
-
-
-// --- Session Analysis Logic ---
-async function handleAnalyzeTranscript() {
-    const transcript = analysis.transcriptInput.value.trim();
-    if (!transcript) {
-        alert("Lütfen analiz için bir transkript girin.");
-        return;
-    }
-    showLoader(analysis.output, "Yapay zeka transkripti analiz ediyor...");
-    analysis.sendButton.classList.add('hidden');
-
-    try {
-        const payload = {
-            contents: [{ role: 'user', parts: [{ text: transcript }] }],
-            systemInstruction: analysisSystemInstruction,
-            schema: {
-                type: Type.OBJECT,
-                properties: {
-                    overallSummary: { type: Type.STRING },
-                    strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    areasForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    keyMomentsAnalysis: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { moment: { type: Type.STRING }, analysis: { type: Type.STRING } }, required: ["moment", "analysis"] } },
-                },
-                required: ["overallSummary", "strengths", "areasForImprovement", "keyMomentsAnalysis"]
-            }
-        };
-        const data = await callApiProxy('gemini-proxy', payload);
-        currentAnalysisCache = { transcript, analysis: data }; // Cache result
-
-        let htmlOutput = `<h4 class="font-bold text-lg mb-2">Genel Özet</h4><p class="mb-4">${data.overallSummary}</p>`;
-        htmlOutput += `<h4 class="font-bold text-lg mb-2">Güçlü Yönler</h4><ul class="list-disc list-inside mb-4">${data.strengths.map((s: string) => `<li>${s}</li>`).join('')}</ul>`;
-        htmlOutput += `<h4 class="font-bold text-lg mb-2">Geliştirilecek Alanlar</h4><ul class="list-disc list-inside mb-4">${data.areasForImprovement.map((a: string) => `<li>${a}</li>`).join('')}</ul>`;
-        htmlOutput += `<h4 class="font-bold text-lg mb-2">Kilit Anlar Analizi</h4>`;
-        data.keyMomentsAnalysis.forEach((moment: any) => {
-            htmlOutput += `<h5 class="font-semibold mt-3">${moment.moment}</h5><p>${moment.analysis}</p>`;
-        });
-        analysis.output.innerHTML = htmlOutput;
-        analysis.sendButton.classList.remove('hidden');
-
-    } catch (error) {
-        console.error("Analysis Error:", error);
-        analysis.output.innerHTML = `<p class="text-red-500">Analiz sırasında bir hata oluştu. Lütfen tekrar deneyin.</p>`;
-    }
-}
-
-async function handleSendToTeacher() {
-    if (!currentAnalysisCache || !currentUserId) return;
-
-    const state = await loadState(currentUserId);
-    const newUpload = {
-        id: `upload_${Date.now()}`,
-        transcript: currentAnalysisCache.transcript,
-        aiAnalysis: currentAnalysisCache.analysis,
-        teacherFeedback: '',
-        timestamp: new Date().toISOString(),
-        status: 'pending_review'
-    };
-    state.uploadedSessions.push(newUpload);
-    await saveState(currentUserId, state);
-    await checkAndAwardAchievements(currentUserId); // Check for Analyst achievement
-
-    showNotification("Analiz başarıyla öğretmeninize gönderildi!");
-    analysis.sendButton.classList.add('hidden');
-    analysis.transcriptInput.value = '';
-    analysis.output.innerHTML = '<p class="text-gray-500">Analiz sonuçları burada görünecektir...</p>';
-    currentAnalysisCache = null;
-    
-    await populateStudentDashboard();
-    showScreen('studentDashboard');
-}
-
-
-// --- Teacher Logic ---
-
-async function getAllStudentData() {
-    const q = query(collection(db, "users"), where("role", "==", "student"), where("status", "==", "approved"));
-    const querySnapshot = await getDocs(q);
-    const studentProfiles = querySnapshot.docs.map(doc => doc.data() as UserProfile);
-
-    const allData = [];
-    for (const profile of studentProfiles) {
-        const data = await loadState(profile.uid);
-        allData.push({ studentProfile: profile, data });
-    }
-    return allData;
-}
-
-async function renderTeacherSimulations() {
-    const container = teacherDashboard.contents.simulations;
-    const allData = await getAllStudentData();
-    const studentsWithSimulations = allData.filter(s => (s.data.simulation && s.data.simulation.currentProblem) || s.data.completedSimulations.length > 0);
-    
-    if (studentsWithSimulations.length === 0) {
-        container.innerHTML = `<p class="text-center text-gray-500 py-12">Henüz hiçbir öğrenci simülasyonu kaydedilmedi.</p>`;
-        return;
-    }
-    
-    let listHtml = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
-    studentsWithSimulations.forEach(({ studentProfile, data }) => {
-        // Prioritize showing the active simulation
-        const activeSim = data.simulation && data.simulation.currentProblem;
-        const simToShow = activeSim 
-            ? { title: data.simulation.currentProblem, status: 'Devam Ediyor' }
-            : data.completedSimulations[data.completedSimulations.length - 1] 
-                ? { title: data.completedSimulations[data.completedSimulations.length - 1].title, status: 'Tamamlandı' }
-                : null;
-        
-        if (simToShow) {
-            listHtml += `
-                <div class="w-full text-left p-5 bg-white rounded-xl shadow-lg hover:shadow-xl transition-all flex flex-col justify-between">
-                    <div>
-                        <div class="flex justify-between items-start">
-                             <span class="font-bold text-lg text-gray-800">${studentProfile.displayName}</span>
-                             <span class="text-xs font-semibold px-2 py-1 rounded-full ${activeSim ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">${simToShow.status}</span>
-                        </div>
-                        <p class="text-sm text-gray-500 mt-1">"${simToShow.title}"</p>
-                    </div>
-                    <div class="flex justify-between items-center mt-4 pt-3 border-t">
-                        <button class="generate-summary-button flex items-center text-sm font-semibold text-amber-600 hover:text-amber-800" data-student-id="${studentProfile.uid}" data-student-name="${studentProfile.displayName}">
-                            <span class="material-symbols-outlined text-md mr-1">auto_awesome</span>AI Özet
-                        </button>
-                        <button class="review-simulation-button flex items-center text-sm font-semibold text-indigo-600 hover:text-indigo-800" data-student-id="${studentProfile.uid}">
-                            İncele <span class="material-symbols-outlined text-md ml-1">arrow_forward</span>
-                        </button>
-                    </div>
-                </div>`;
-        }
-    });
-    listHtml += '</div>';
-    container.innerHTML = listHtml;
-}
-
-
-function renderTeacherUploads() {
-     teacherDashboard.contents.uploads.innerHTML = `<p class="text-center text-gray-500 py-12">Yüklenen seansları inceleme özelliği yakında aktif olacaktır.</p>`;
-}
-
-async function renderTeacherQuestions() {
-    const container = teacherDashboard.contents.questions;
-    const allData = await getAllStudentData();
-    const allQuestions: any[] = [];
-
-    allData.forEach(({ studentProfile, data }) => {
-        data.teacherComms.questions.forEach(q => {
-            const answer = data.teacherComms.answers.find(a => a.questionId === q.id);
-            allQuestions.push({ ...q, studentId: studentProfile.uid, studentName: studentProfile.displayName, answer });
-        });
-    });
-
-    if (allQuestions.length === 0) {
-        container.innerHTML = `<p class="text-center text-gray-500 py-12">Henüz öğrenci sorusu bulunmuyor.</p>`;
-        return;
-    }
-
-    let html = '<div class="space-y-6 max-w-3xl mx-auto">';
-    allQuestions.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).forEach(q => {
-        html += `
-            <div class="bg-white p-5 rounded-xl shadow-lg" data-question-id="${q.id}" data-student-id="${q.studentId}">
-                <div class="flex justify-between items-center mb-3">
-                    <p class="font-bold text-gray-800">${q.studentName}</p>
-                    <p class="text-xs text-gray-400">${new Date(q.timestamp).toLocaleString()}</p>
-                </div>
-                <p class="text-gray-600 p-3 bg-gray-50 rounded-md mb-4">${q.text}</p>
-                ${q.answer ? `
-                    <div class="border-t pt-3 mt-3">
-                        <p class="text-sm font-semibold text-amber-700 mb-2">Sizin Yanıtınız:</p>
-                        <p class="text-gray-700 p-3 bg-amber-50 rounded-md">${q.answer.text}</p>
-                    </div>
-                ` : `
-                    <div class="flex flex-col gap-2">
-                        <textarea class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 transition-shadow" rows="2" placeholder="Yanıtınızı buraya yazın..."></textarea>
-                        <button class="submit-answer-button flex self-end items-center justify-center rounded-lg h-10 px-5 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300">
-                            <span>Yanıtla</span>
-                        </button>
-                    </div>
-                `}
-            </div>
-        `;
-    });
-    html += '</div>';
-    container.innerHTML = html;
-}
-
-async function renderTeacherAnalytics() {
-    const container = teacherDashboard.contents.analytics;
-    const allData = await getAllStudentData();
-    if (allData.length === 0) {
-        container.innerHTML = `<p class="text-center text-gray-500 py-12">Analiz için yeterli öğrenci verisi bulunmuyor.</p>`;
-        return;
-    }
-
-    const classScores = { empathy: [] as number[], technique: [] as number[], rapport: [] as number[] };
-    const scenarioCounts: { [key: string]: number } = {};
-
-    allData.forEach(({ data }) => {
-        const history = [...data.simulation.conversationHistory, ...data.completedSimulations.flatMap(s => s.history || [])];
-        const avgScores = calculateAverageScores(history);
-        if (avgScores.empathy > 0) classScores.empathy.push(avgScores.empathy);
-        if (avgScores.technique > 0) classScores.technique.push(avgScores.technique);
-        if (avgScores.rapport > 0) classScores.rapport.push(avgScores.rapport);
-        
-        const problems = [data.simulation.currentProblem, ...data.completedSimulations.map(s => s.title)].filter(Boolean);
-        problems.forEach(problem => {
-             scenarioCounts[problem] = (scenarioCounts[problem] || 0) + 1;
-        });
-    });
-    
-    const getAverage = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
-    const classAvg = {
-        empathy: getAverage(classScores.empathy),
-        technique: getAverage(classScores.technique),
-        rapport: getAverage(classScores.rapport),
-    };
-    
-    const mostPlayedScenario = Object.entries(scenarioCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
-
-    container.innerHTML = `
-        <h3 class="text-2xl font-bold text-gray-800 text-center mb-6">Sınıf Geneli Analizler</h3>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div class="bg-gray-50 p-4 rounded-lg text-center"><h4 class="font-bold text-gray-700">Toplam Öğrenci</h4><p class="text-3xl font-bold text-[var(--teacher-color)]">${allData.length}</p></div>
-            <div class="bg-gray-50 p-4 rounded-lg text-center"><h4 class="font-bold text-gray-700">Aktif Simülasyon</h4><p class="text-3xl font-bold text-[var(--teacher-color)]">${allData.filter(s => s.data.simulation.currentProblem).length}</p></div>
-            <div class="bg-gray-50 p-4 rounded-lg text-center"><h4 class="font-bold text-gray-700">En Popüler Senaryo</h4><p class="text-xl font-bold text-[var(--teacher-color)] mt-2">${mostPlayedScenario}</p></div>
-        </div>
-        <div>
-            <h4 class="font-semibold text-gray-800 mb-4 text-xl">Sınıfın Ortalama Beceri Puanları</h4>
-            <div class="space-y-3">
-                <div class="w-full"><span class="text-sm font-medium text-gray-600">Empati</span><div class="h-5 bg-gray-200 rounded-full mt-1"><div class="h-5 rounded-full bg-fuchsia-500 chart-bar text-white text-xs flex items-center justify-center font-bold" style="width: ${classAvg.empathy * 10}%;">${(classAvg.empathy).toFixed(1)}</div></div></div>
-                <div class="w-full"><span class="text-sm font-medium text-gray-600">BDT Tekniği</span><div class="h-5 bg-gray-200 rounded-full mt-1"><div class="h-5 rounded-full bg-amber-500 chart-bar text-white text-xs flex items-center justify-center font-bold" style="width: ${classAvg.technique * 10}%;">${(classAvg.technique).toFixed(1)}</div></div></div>
-                <div class="w-full"><span class="text-sm font-medium text-gray-600">İlişki Kurma</span><div class="h-5 bg-gray-200 rounded-full mt-1"><div class="h-5 rounded-full bg-teal-500 chart-bar text-white text-xs flex items-center justify-center font-bold" style="width: ${classAvg.rapport * 10}%;">${(classAvg.rapport).toFixed(1)}</div></div></div>
-            </div>
-        </div>
-    `;
-}
-
-async function renderScenarioBuilder() {
-    const container = teacherDashboard.contents.builder;
-    container.innerHTML = `
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div class="bg-white/70 p-6 rounded-2xl shadow-xl">
-                <h3 class="text-2xl font-bold text-gray-800 mb-4">Yeni Senaryo Oluştur</h3>
-                <form id="scenario-builder-form" class="space-y-4">
-                    <div>
-                        <label for="scenario-title" class="block text-sm font-medium text-gray-700">Senaryo Başlığı</label>
-                        <input type="text" id="scenario-title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500" placeholder="Örn: İş Stresi" required>
-                    </div>
-                    <div>
-                        <label for="scenario-desc" class="block text-sm font-medium text-gray-700">Kısa Açıklama (Seçim ekranı için)</label>
-                        <input type="text" id="scenario-desc" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500" placeholder="Örn: Yeni terfisi sonrası bunalmış bir danışan." required>
-                    </div>
-                    <div>
-                        <label for="scenario-profile" class="block text-sm font-medium text-gray-700">Detaylı Danışan Profili (Yapay Zeka için)</label>
-                        <textarea id="scenario-profile" rows="6" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500" placeholder="Danışanın temel inançlarını, otomatik düşüncelerini, kişilik özelliklerini ve soruna dair detayları buraya yazın." required></textarea>
-                    </div>
-                    <button type="submit" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 shadow-md">
-                        <span class="material-symbols-outlined mr-2">add</span>
-                        <span>Senaryoyu Kaydet</span>
-                    </button>
-                </form>
-            </div>
-            <div class="bg-white/70 p-6 rounded-2xl shadow-xl">
-                <h3 class="text-2xl font-bold text-gray-800 mb-4">Oluşturulan Senaryolar</h3>
-                <div id="custom-scenario-list" class="space-y-3 max-h-96 overflow-y-auto">
-                    <!-- List will be populated here -->
-                </div>
-            </div>
-        </div>
-    `;
-    await populateCustomScenarioList();
-
-    const form = document.getElementById('scenario-builder-form');
-    form?.addEventListener('submit', handleSaveCustomScenario);
-}
-
-async function renderResourceLibrary() {
-    const container = teacherDashboard.contents.library;
-    const scenarios = await getAllScenarios();
-    container.innerHTML = `
-         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div class="bg-white/70 p-6 rounded-2xl shadow-xl">
-                <h3 class="text-2xl font-bold text-gray-800 mb-4">Yeni Kaynak Ekle</h3>
-                <form id="resource-library-form" class="space-y-4">
-                    <div>
-                        <label for="resource-title" class="block text-sm font-medium text-gray-700">Kaynak Başlığı</label>
-                        <input type="text" id="resource-title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500" placeholder="Örn: Etkili Nefes Egzersizleri" required>
-                    </div>
-                     <div>
-                        <label for="resource-url" class="block text-sm font-medium text-gray-700">Kaynak URL (Link)</label>
-                        <input type="url" id="resource-url" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500" placeholder="https://..." required>
-                    </div>
-                    <div>
-                        <label for="resource-type" class="block text-sm font-medium text-gray-700">Kaynak Türü</label>
-                        <select id="resource-type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500">
-                            <option value="article">Makale</option>
-                            <option value="video">Video</option>
-                            <option value="pdf">PDF</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="resource-scenarios" class="block text-sm font-medium text-gray-700">İlişkili Senaryolar (İsteğe Bağlı)</label>
-                        <select id="resource-scenarios" multiple class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 h-32">
-                            ${scenarios.map(s => `<option value="${s.id}">${s.title}</option>`).join('')}
-                        </select>
-                    </div>
-                    <button type="submit" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 shadow-md">
-                        <span class="material-symbols-outlined mr-2">add</span>
-                        <span>Kaynağı Kütüphaneye Ekle</span>
-                    </button>
-                </form>
-            </div>
-            <div class="bg-white/70 p-6 rounded-2xl shadow-xl">
-                <h3 class="text-2xl font-bold text-gray-800 mb-4">Mevcut Kaynaklar</h3>
-                <div id="resource-list-container" class="space-y-3 max-h-96 overflow-y-auto">
-                    <!-- List will be populated here -->
-                </div>
-            </div>
-        </div>
-    `;
-    await populateResourceList();
-    const form = document.getElementById('resource-library-form');
-    form?.addEventListener('submit', handleSaveResource);
-}
-
-async function populateResourceList() {
-    const listContainer = document.getElementById('resource-list-container');
-    if (!listContainer) return;
-    const resources = await getResourceLibrary();
-    const iconMap = { article: 'article', video: 'smart_display', pdf: 'picture_as_pdf' };
-
-    if (resources.length === 0) {
-        listContainer.innerHTML = `<p class="text-center text-gray-500 py-8">Henüz kütüphaneye kaynak eklenmedi.</p>`;
-        return;
-    }
-    listContainer.innerHTML = resources.map(r => `
-        <div class="bg-gray-50 p-3 rounded-lg flex justify-between items-center">
-            <div class="flex items-center gap-3">
-                <span class="material-symbols-outlined text-gray-500">${iconMap[r.type]}</span>
-                <div>
-                    <a href="${r.url}" target="_blank" class="font-semibold text-gray-800 hover:text-indigo-600">${r.title}</a>
-                    <p class="text-xs text-gray-500">${r.url}</p>
-                </div>
-            </div>
-            <button data-resource-id="${r.id}" class="delete-resource-button p-2 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full transition-colors">
-                <span class="material-symbols-outlined">delete</span>
-            </button>
-        </div>
-    `).join('');
-}
-
-
-async function populateCustomScenarioList() {
-    const listContainer = document.getElementById('custom-scenario-list');
-    if (!listContainer) return;
-    const scenarios = await getCustomScenarios();
-    if (scenarios.length === 0) {
-        listContainer.innerHTML = `<p class="text-center text-gray-500 py-8">Henüz özel senaryo oluşturulmadı.</p>`;
-        return;
-    }
-    listContainer.innerHTML = scenarios.map(s => `
-        <div class="bg-gray-50 p-3 rounded-lg flex justify-between items-center">
-            <div>
-                <p class="font-semibold text-gray-800">${s.title}</p>
-                <p class="text-xs text-gray-500">${s.description}</p>
-            </div>
-            <button data-scenario-id="${s.id}" class="delete-scenario-button p-2 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full transition-colors">
-                <span class="material-symbols-outlined">delete</span>
-            </button>
-        </div>
-    `).join('');
-}
-
-async function handleSaveCustomScenario(event: Event) {
-    event.preventDefault();
-    const titleInput = document.getElementById('scenario-title') as HTMLInputElement;
-    const descInput = document.getElementById('scenario-desc') as HTMLInputElement;
-    const profileInput = document.getElementById('scenario-profile') as HTMLTextAreaElement;
-
-    const newScenario = {
-        title: titleInput.value.trim(),
-        description: descInput.value.trim(),
-        profile: profileInput.value.trim(),
-    };
-    
-    await saveCustomScenario(newScenario);
-
-    showNotification("Yeni senaryo başarıyla oluşturuldu!");
-    (event.target as HTMLFormElement).reset();
-    await populateCustomScenarioList();
-}
-
-async function handleDeleteCustomScenario(scenarioId: string) {
-    if(!confirm("Bu senaryoyu silmek istediğinizden emin misiniz?")) return;
-    
-    await deleteCustomScenario(scenarioId);
-
-    showNotification("Senaryo silindi.");
-    await populateCustomScenarioList();
-}
-
-async function handleSaveResource(event: Event) {
-    event.preventDefault();
-    const form = event.target as HTMLFormElement;
-    const title = (form.elements.namedItem('resource-title') as HTMLInputElement).value.trim();
-    const url = (form.elements.namedItem('resource-url') as HTMLInputElement).value.trim();
-    const type = (form.elements.namedItem('resource-type') as HTMLSelectElement).value as Resource['type'];
-    const scenariosSelect = (form.elements.namedItem('resource-scenarios') as HTMLSelectElement);
-    const associatedScenarioIds = Array.from(scenariosSelect.selectedOptions).map(opt => opt.value);
-
-    const newResource = {
-        title,
-        url,
-        type,
-        associatedScenarioIds
-    };
-
-    await saveResource(newResource);
-
-    showNotification("Kaynak başarıyla kütüphaneye eklendi!");
-    form.reset();
-    await populateResourceList();
-}
-
-async function handleDeleteResource(resourceId: string) {
-    if (!confirm("Bu kaynağı silmek istediğinizden emin misiniz?")) return;
-    await deleteResource(resourceId);
-    showNotification("Kaynak silindi.");
-    await populateResourceList();
-}
-
-
-async function handleAnswerSubmit(button: HTMLButtonElement) {
-    const container = button.closest('[data-question-id]');
-    if (!container) return;
-    
-    const studentId = (container as HTMLElement).dataset.studentId;
-    const questionId = (container as HTMLElement).dataset.questionId;
-    const textarea = container.querySelector('textarea');
-    const answerText = textarea?.value.trim();
-
-    if (!studentId || !questionId || !answerText || !textarea) return;
-
-    const state = await loadState(studentId);
-    const newAnswer = {
-        questionId: questionId,
-        text: answerText,
-        timestamp: new Date().toISOString()
-    };
-    state.teacherComms.answers.push(newAnswer);
-    await saveState(studentId, state);
-
-    const studentProfileDoc = await getDoc(doc(db, "users", studentId));
-    const studentName = studentProfileDoc.data()?.displayName || 'Öğrenci';
-
-    showNotification(`${studentName} adlı öğrencinin sorusu yanıtlandı.`);
-    const parent = button.parentElement!;
-    parent.innerHTML = `
-        <div class="border-t pt-3 mt-3">
-            <p class="text-sm font-semibold text-amber-700 mb-2">Sizin Yanıtınız:</p>
-            <p class="text-gray-700 p-3 bg-amber-50 rounded-md">${answerText}</p>
-        </div>
-    `;
-}
-
-async function renderRegistrationRequests() {
-    const container = teacherDashboard.contents.requests;
+    // Tab 2: Registration Requests
     const q = query(collection(db, "users"), where("status", "==", "pending"));
     const querySnapshot = await getDocs(q);
-    const pendingUsers = querySnapshot.docs.map(doc => doc.data() as UserProfile);
-
-    // Update badge
-    if (pendingUsers.length > 0) {
-        teacherDashboard.requestsCountBadge.textContent = String(pendingUsers.length);
-        teacherDashboard.requestsCountBadge.classList.remove('hidden');
+    let requestsHtml = '<div class="space-y-4">';
+    if (querySnapshot.empty) {
+        requestsHtml = '<p class="text-center text-gray-500 py-8">Onay bekleyen öğrenci kaydı bulunmuyor.</p>';
     } else {
-        teacherDashboard.requestsCountBadge.classList.add('hidden');
-    }
-
-    if (pendingUsers.length === 0) {
-        container.innerHTML = `<p class="text-center text-gray-500 py-12">Onay bekleyen öğrenci kaydı bulunmuyor.</p>`;
-        return;
-    }
-
-    let html = '<div class="space-y-4 max-w-2xl mx-auto">';
-    pendingUsers.forEach(user => {
-        html += `
-            <div class="bg-white p-4 rounded-lg shadow-md flex justify-between items-center">
-                <div>
-                    <p class="font-semibold text-gray-700">${user.displayName}</p>
-                    <p class="text-sm text-gray-500">${user.email}</p>
+        querySnapshot.forEach((doc) => {
+            const user = doc.data();
+            requestsHtml += `
+                <div class="bg-white/80 p-4 rounded-xl shadow-lg flex items-center justify-between">
+                    <div>
+                        <p class="font-bold text-gray-800">${user.displayName}</p>
+                        <p class="text-sm text-gray-500">${user.email}</p>
+                    </div>
+                    <div class="flex gap-3">
+                        <button data-uid="${doc.id}" class="approve-button bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors font-semibold">Onayla</button>
+                        <button data-uid="${doc.id}" class="reject-button bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors font-semibold">Reddet</button>
+                    </div>
                 </div>
-                <div class="flex gap-2">
-                    <button data-uid="${user.uid}" class="approve-request-button h-10 px-4 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition-colors text-sm">Onayla</button>
-                    <button data-uid="${user.uid}" class="reject-request-button h-10 px-4 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition-colors text-sm">Reddet</button>
-                </div>
-            </div>
-        `;
-    });
-    html += '</div>';
-    container.innerHTML = html;
+            `;
+        });
+    }
+    requestsHtml += '</div>';
+    teacherDashboard.contents.requests.innerHTML = requestsHtml;
+    const pendingCount = querySnapshot.size;
+    teacherDashboard.requestsCountBadge.textContent = String(pendingCount);
+    teacherDashboard.requestsCountBadge.classList.toggle('hidden', pendingCount === 0);
+
 }
 
-async function handleApproveRequest(uid: string) {
-    await setDoc(doc(db, "users", uid), { status: 'approved' }, { merge: true });
-    showNotification(`Öğrenci kaydı onaylandı.`);
-    await renderRegistrationRequests();
-}
+async function handleApprovalAction(event: Event) {
+    const target = event.target as HTMLElement;
+    const button = target.closest('.approve-button, .reject-button') as HTMLButtonElement | null;
+    if (!button) return;
 
-async function handleRejectRequest(uid: string) {
-     if (!confirm(`Bu öğrencinin kayıt isteğini reddetmek istediğinizden emin misiniz? Bu işlem geri alınamaz.`)) return;
-    await deleteDoc(doc(db, "users", uid));
-    showNotification(`Öğrenci kaydı reddedildi.`);
-    await renderRegistrationRequests();
-}
+    const userId = button.dataset.uid;
+    if (!userId) return;
 
-
-async function handleTeacherTabClick(tabId: string) {
-    activeTeacherTab = tabId;
-    
-    teacherDashboard.tabs.forEach(tabElement => {
-        if (tabElement.getAttribute('data-tab') === tabId) {
-            tabElement.classList.add('border-[var(--teacher-color)]', 'text-[var(--teacher-color)]');
-            tabElement.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-        } else {
-            tabElement.classList.remove('border-[var(--teacher-color)]', 'text-[var(--teacher-color)]');
-            tabElement.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+    try {
+        if (button.classList.contains('approve-button')) {
+            const userDocRef = doc(db, 'users', userId);
+            await updateDoc(userDocRef, { status: "approved" });
+            showNotification('Öğrenci onaylandı.', 3000, 'success');
+        } else if (button.classList.contains('reject-button')) {
+            const userDocRef = doc(db, 'users', userId);
+            await deleteDoc(userDocRef);
+            // Note: This does not delete the user from Firebase Auth, only Firestore.
+            // For a full user deletion, a cloud function with admin privileges is required.
+            showNotification('İstek reddedildi ve silindi.', 3000, 'success');
         }
-    });
-
-    teacherDashboard.contentContainer.style.opacity = '0';
-    
-    setTimeout(async () => {
-        Object.values(teacherDashboard.contents).forEach(content => (content as HTMLElement).classList.add('hidden'));
-        const activeContent = teacherDashboard.contents[tabId as keyof typeof teacherDashboard.contents];
-        (activeContent as HTMLElement).classList.remove('hidden');
-
-        if (tabId === 'simulations') await renderTeacherSimulations();
-        if (tabId === 'requests') await renderRegistrationRequests();
-        if (tabId === 'uploads') renderTeacherUploads();
-        if (tabId === 'questions') await renderTeacherQuestions();
-        if (tabId === 'analytics') await renderTeacherAnalytics();
-        if (tabId === 'builder') await renderScenarioBuilder();
-        if (tabId === 'library') await renderResourceLibrary();
-        
-        teacherDashboard.contentContainer.style.opacity = '1';
-    }, 200);
-}
-
-async function handleTeacherLogin() {
-    if (teacherPasswordInput.value === '32433243') { // This should be a real login in a production app
-        showScreen('teacherDashboard');
-        studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-700">school</span><span class="font-semibold text-amber-700">Öğretmen Paneli</span>`;
-        studentInfo.classList.remove('hidden');
-        homeButton.classList.remove('hidden');
-        backToSelectionButton.classList.add('hidden');
-        saveProgressButton.classList.add('hidden');
-        await handleTeacherTabClick('simulations'); // Default tab
-        await renderRegistrationRequests(); // To update the badge count on login
-    } else {
-        alert('Yanlış şifre!');
+        populateTeacherDashboard(); // Refresh list
+    } catch (error) {
+        console.error("Approval action error:", error);
+        showNotification('İşlem sırasında bir hata oluştu.', 3000, 'error');
     }
 }
 
-async function handleStudentSimSelect(studentId: string) {
-    reviewingStudentId = studentId;
-    const state = await loadState(reviewingStudentId);
-    const studentProfileDoc = await getDoc(doc(db, "users", studentId));
-    const studentProfile = studentProfileDoc.data() as UserProfile;
 
-    const simHistory = state.simulation.currentProblem ? state.simulation.conversationHistory : state.completedSimulations[state.completedSimulations.length - 1]?.history;
-    const simProblem = state.simulation.currentProblem || state.completedSimulations[state.completedSimulations.length - 1]?.title;
-
-    if (simHistory && simProblem) {
-        teacherReview.studentName.textContent = studentProfile.displayName;
-        teacherReview.problemDisplay.textContent = simProblem;
-        const lastModelResponse = rebuildUiFromState(teacherReview.chatContainer, simHistory, true);
-        if (lastModelResponse) {
-             updateGraphs(teacherReview.feedbackSection, lastModelResponse.scoring, lastModelResponse.clientImpact, lastModelResponse.feedback);
-        } else {
-             teacherReview.feedbackSection.classList.add('hidden');
-        }
-        showScreen('teacherReview');
-    } else {
-        alert("Bu öğrenci için incelenecek bir simülasyon bulunamadı.");
-    }
-}
-
-async function submitTeacherFeedback() {
-    const feedback = teacherReview.feedbackInput.value.trim();
-    if (!feedback || !reviewingStudentId) return;
-
-    const state = await loadState(reviewingStudentId);
-    if (state) {
-        state.simulation.conversationHistory.push({ role: 'teacher_feedback', parts: [{ text: feedback }] });
-        await saveState(reviewingStudentId, state);
-        appendMessage(teacherReview.chatContainer, 'teacher_feedback', feedback);
-        teacherReview.feedbackInput.value = '';
-        showNotification('Genel geri bildirim başarıyla eklendi!');
-    }
-}
-
-async function archiveCurrentSimulation(studentId: string) {
-    if (!studentId) return;
-    const state = await loadState(studentId);
+// --- Other Functions ---
+function archiveCurrentSimulation(studentId: string) {
+    const state = loadState(studentId);
     if (!state.simulation.currentProblem) return;
 
     const finalScores = calculateAverageScores(state.simulation.conversationHistory);
@@ -1594,250 +921,138 @@ async function archiveCurrentSimulation(studentId: string) {
         completionDate: new Date().toISOString(),
         history: state.simulation.conversationHistory,
     });
-
+    
+    // Reset current simulation state
     state.simulation.currentProblem = '';
     state.simulation.currentScenarioId = '';
     state.simulation.conversationHistory = [];
 
-    await saveState(studentId, state);
-    await checkAndAwardAchievements(studentId);
+    saveState(studentId, state);
+    checkAndAwardAchievements(studentId);
 }
 
 
-async function handleGenerateAiSummary(studentId: string, studentName: string) {
-    showModal('summary', studentName, `<div class="flex items-center justify-center py-10"><div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] text-[var(--teacher-color)] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status"></div><p class="ml-4">Öğrenci verileri analiz ediliyor...</p></div>`);
-
-    try {
-        const studentState = await loadState(studentId);
-        const allHistory = [
-            ...studentState.completedSimulations.flatMap(s => s.history),
-            ...studentState.simulation.conversationHistory
-        ];
-
-        if (allHistory.length === 0) {
-            showModal('summary', studentName, `<p>Analiz edilecek yeterli veri bulunmuyor.</p>`);
-            return;
-        }
-
-        const formattedHistory = allHistory.map(turn => {
-            if (turn.role === 'user') return `TERAPİST: ${turn.parts[0].text}`;
-            if (turn.role === 'model') {
-                 try {
-                    const data = JSON.parse(turn.parts[0].text);
-                    return `DANIŞAN (Elif): ${data.clientResponse}`;
-                } catch { return ''; }
-            }
-            return '';
-        }).join('\n');
-
-        const payload = {
-            contents: [{ role: 'user', parts: [{ text: `Aşağıdaki seans kayıtlarını analiz et:\n\n${formattedHistory}` }] }],
-            systemInstruction: studentSummarySystemInstruction,
-            schema: {
-                type: Type.OBJECT,
-                properties: {
-                    overallPerformanceSummary: { type: Type.STRING },
-                    recurringStrengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    patternsForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    actionableSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
-                },
-                required: ["overallPerformanceSummary", "recurringStrengths", "patternsForImprovement", "actionableSuggestions"]
-            }
-        };
-
-        const data = await callApiProxy('gemini-proxy', payload);
-        let htmlOutput = `
-            <h4 class="font-bold text-lg mb-2">Genel Performans</h4>
-            <p class="mb-4">${data.overallPerformanceSummary}</p>
-            <h4 class="font-bold text-lg mb-2">Tekrar Eden Güçlü Yönler</h4>
-            <ul class="list-disc list-inside mb-4 text-green-700">${data.recurringStrengths.map((s: string) => `<li>${s}</li>`).join('')}</ul>
-            <h4 class="font-bold text-lg mb-2">Geliştirilmesi Gereken Alanlar</h4>
-            <ul class="list-disc list-inside mb-4 text-red-700">${data.patternsForImprovement.map((a: string) => `<li>${a}</li>`).join('')}</ul>
-             <h4 class="font-bold text-lg mb-2">Eyleme Geçirilebilir Öneriler</h4>
-            <ul class="list-disc list-inside mb-4 text-indigo-700">${data.actionableSuggestions.map((a: string) => `<li>${a}</li>`).join('')}</ul>
-        `;
-        showModal('summary', studentName, htmlOutput);
-
-    } catch (error) {
-        console.error("AI Summary Error:", error);
-        showModal('summary', studentName, `<p class="text-red-500">Özet oluşturulurken bir hata oluştu.</p>`);
-    }
-}
-
-
-// --- General Event Listeners ---
-
+// --- Event Listeners ---
 function setupEventListeners() {
-    // Navigation
-    homeButton.addEventListener('click', logout);
-    backToSelectionButton.addEventListener('click', async () => {
-        await populateStudentDashboard();
-        showScreen('studentDashboard');
-    });
-    teacherReview.backButton.addEventListener('click', async () => {
-        showScreen('teacherDashboard');
-        await handleTeacherTabClick(activeTeacherTab);
-    });
-    analysis.backButton.addEventListener('click', async () => {
-        await populateStudentDashboard();
-        showScreen('studentDashboard');
-    });
-
-    // Actions
-    problemSelectionContainer.addEventListener('click', handleProblemSelect);
-    simulation.optionsContainer.addEventListener('click', handleOptionSelect);
-    saveProgressButton.addEventListener('click', async () => {
-        if (!currentUserId) return;
-        const state = await loadState(currentUserId);
-        await saveState(currentUserId, state);
-        showNotification('İlerlemeniz başarıyla kaydedildi!');
-    });
-
-    // Login / Register
     loginButton.addEventListener('click', handleLogin);
-    passwordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleLogin(); });
     registerButton.addEventListener('click', handleRegister);
-    registerConfirmPasswordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleRegister(); });
+    homeButton.addEventListener('click', logout); // Re-purposed as logout
 
     showRegisterView.addEventListener('click', (e) => {
         e.preventDefault();
         loginView.classList.add('hidden');
         registerView.classList.remove('hidden');
     });
+
     showLoginView.addEventListener('click', (e) => {
         e.preventDefault();
         registerView.classList.add('hidden');
         loginView.classList.remove('hidden');
     });
 
-    // Teacher Login
     showTeacherLogin.addEventListener('click', (e) => {
         e.preventDefault();
         teacherLoginForm.classList.toggle('hidden');
     });
-    teacherLoginButton.addEventListener('click', handleTeacherLogin);
-    teacherPasswordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleTeacherLogin(); });
-    teacherReview.submitFeedbackButton.addEventListener('click', submitTeacherFeedback);
-
-    // Teacher Dashboard
-    teacherDashboard.tabs.forEach(tab => {
-        tab.addEventListener('click', () => handleTeacherTabClick(tab.getAttribute('data-tab')!));
-    });
-
-    teacherDashboard.contentContainer.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement;
-        const reviewButton = target.closest('.review-simulation-button');
-        const summaryButton = target.closest('.generate-summary-button');
-        const answerButton = target.closest('.submit-answer-button');
-        const deleteScenarioBtn = target.closest('.delete-scenario-button');
-        const deleteResourceBtn = target.closest('.delete-resource-button');
-        const approveBtn = target.closest('.approve-request-button');
-        const rejectBtn = target.closest('.reject-request-button');
-
-        if (reviewButton) handleStudentSimSelect(reviewButton.getAttribute('data-student-id')!);
-        if (summaryButton) handleGenerateAiSummary(summaryButton.getAttribute('data-student-id')!, summaryButton.getAttribute('data-student-name')!);
-        if (answerButton) handleAnswerSubmit(answerButton as HTMLButtonElement);
-        if (deleteScenarioBtn) handleDeleteCustomScenario(deleteScenarioBtn.getAttribute('data-scenario-id')!);
-        if (deleteResourceBtn) handleDeleteResource(deleteResourceBtn.getAttribute('data-resource-id')!);
-        if (approveBtn) handleApproveRequest(approveBtn.getAttribute('data-uid')!);
-        if (rejectBtn) handleRejectRequest(rejectBtn.getAttribute('data-uid')!);
-    });
     
-    // Teacher Review Inline Comments
-    teacherReview.chatContainer.addEventListener('click', async e => {
-        const target = e.target as HTMLElement;
-        const button = target.closest('.add-inline-comment-button');
-        if (button) {
-            const turnId = button.getAttribute('data-turn-id');
-            const inputContainer = document.getElementById(`comment-input-${turnId}`);
-            inputContainer?.classList.toggle('hidden');
-            return;
-        }
-
-        const submitButton = target.closest('.submit-inline-comment');
-        if (submitButton && reviewingStudentId) {
-            const container = submitButton.parentElement!;
-            const turnId = container.parentElement?.querySelector('[data-turn-id]')?.getAttribute('data-turn-id');
-            const input = container.querySelector('input') as HTMLInputElement;
-            const commentText = input.value.trim();
-
-            if (commentText && turnId) {
-                const state = await loadState(reviewingStudentId);
-                const turn = state.simulation.conversationHistory.find(t => t.id === turnId);
-                if (turn) {
-                    turn.teacherComment = commentText;
-                    await saveState(reviewingStudentId, state);
-                    
-                    const commentDiv = document.createElement('div');
-                    commentDiv.className = `teacher-inline-comment animate-fade-in-up self-start`;
-                    commentDiv.innerHTML = `<p class="font-semibold text-xs text-amber-700 mb-1">Öğretmen Notu:</p><p class="text-sm text-amber-800">${commentText}</p>`;
-                    container.parentElement?.appendChild(commentDiv);
-                    
-                    input.value = '';
-                    container.classList.add('hidden');
-                    showNotification("Yorum eklendi.");
-                }
-            }
+    teacherLoginButton.addEventListener('click', () => {
+        // This password should be stored securely, e.g., in environment variables
+        if (teacherPasswordInput.value === 'teacher123') {
+             populateTeacherDashboard();
+             showScreen('teacherDashboard');
+        } else {
+            alert('Geçersiz öğretmen şifresi');
         }
     });
 
-    // Student Dashboard
+    problemSelectionContainer.addEventListener('click', handleProblemSelect);
+    simulation.optionsContainer.addEventListener('click', handleOptionSelect);
+
+    saveProgressButton.addEventListener('click', () => {
+        archiveCurrentSimulation(currentUserId);
+        populateStudentDashboard();
+        showScreen('studentDashboard');
+        showNotification('İlerlemeniz başarıyla kaydedildi!', 3000);
+    });
+
+    backToSelectionButton.addEventListener('click', () => showScreen('problemSelection'));
     goToAnalysisButton.addEventListener('click', () => showScreen('sessionAnalysis'));
-    teacherQASystem.button.addEventListener('click', handleAskTeacher);
-    teacherQASystem.input.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleAskTeacher(); });
+    analysis.backButton.addEventListener('click', () => showScreen('studentDashboard'));
 
-    // Analysis Screen
-    analysis.analyzeButton.addEventListener('click', handleAnalyzeTranscript);
-    analysis.sendButton.addEventListener('click', handleSendToTeacher);
+    teacherDashboard.tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = (tab as HTMLElement).dataset.tab!;
+            activeTeacherTab = tabName;
+            teacherDashboard.tabs.forEach(t => t.classList.remove('border-indigo-500', 'text-indigo-600'));
+            tab.classList.add('border-indigo-500', 'text-indigo-600');
+            Object.values(teacherDashboard.contents).forEach(content => content.classList.add('hidden'));
+            teacherDashboard.contents[tabName as keyof typeof teacherDashboard.contents].classList.remove('hidden');
+        });
+    });
 
-    // Modals
+    teacherDashboard.contentContainer.addEventListener('click', handleApprovalAction);
+
     rationaleModal.closeButton.addEventListener('click', () => hideModal('rationale'));
-    rationaleModal.container.addEventListener('click', (e) => { if (e.target === rationaleModal.container) hideModal('rationale'); });
     summaryModal.closeButton.addEventListener('click', () => hideModal('summary'));
-    summaryModal.container.addEventListener('click', (e) => { if (e.target === summaryModal.container) hideModal('summary'); });
-
     simulation.chatContainer.addEventListener('click', (e) => {
         const target = e.target as HTMLElement;
-        const rationaleButton = target.closest('.rationale-button');
-        if (rationaleButton) {
-            const rationaleText = rationaleButton.getAttribute('data-rationale');
-            if (rationaleText) {
-                showModal('rationale', 'Terapötik Gerekçe', rationaleText);
-            }
+        const button = target.closest('.rationale-button');
+        if (button) {
+            const rationale = button.getAttribute('data-rationale');
+            showModal('rationale', 'Terapötik Gerekçe', rationale || 'Gerekçe bulunamadı.');
         }
     });
 }
 
-// --- Init ---
-async function initializeApp() {
-    homeButton.classList.add('hidden');
-    backToSelectionButton.classList.add('hidden');
-    saveProgressButton.classList.add('hidden');
+// --- App Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
-
     onAuthStateChanged(auth, async (user) => {
         if (user) {
-            currentUserId = user.uid;
-            const userDoc = await getDoc(doc(db, "users", user.uid));
-            if (userDoc.exists()) {
-                currentUserProfile = userDoc.data() as UserProfile;
-                if (currentUserProfile.status === 'pending') {
-                    alert("Hesabınız henüz öğretmeniniz tarafından onaylanmadı.");
-                    await logout();
-                } else {
-                    studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span id="student-name-display" class="font-semibold">${currentUserProfile.displayName}</span>`;
-                    studentInfo.classList.remove('hidden');
-                    homeButton.classList.remove('hidden');
-                    await populateStudentDashboard();
-                    showScreen('studentDashboard');
-                }
+            const userDocRef = doc(db, 'users', user.uid);
+            const docSnap = await getDoc(userDocRef);
+
+            if (docSnap.exists() && docSnap.data().status === 'approved') {
+                currentUserId = user.uid;
+                currentStudentName = user.displayName || docSnap.data().displayName || user.email!;
+                
+                studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
+                studentInfo.classList.remove('hidden');
+                homeButton.classList.remove('hidden');
+                homeButton.innerHTML = `<span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>`;
+                
+                populateStudentDashboard();
+                showScreen('studentDashboard');
+
             } else {
-                 await logout(); // Profile not found, force logout
+                // User exists in Auth, but not in Firestore or is pending
+                signOut(auth);
+                loginError.textContent = 'Hesabınız henüz öğretmen tarafından onaylanmadı veya bir sorun oluştu.';
+                loginError.classList.remove('hidden');
             }
         } else {
+            // User is signed out
+            currentUserId = '';
+            currentStudentName = '';
+            
             showScreen('login');
+            studentInfo.classList.add('hidden');
+            homeButton.classList.add('hidden');
+            backToSelectionButton.classList.add('hidden');
+            saveProgressButton.classList.add('hidden');
+            usernameInput.value = '';
+            passwordInput.value = '';
+            teacherPasswordInput.value = '';
+            teacherLoginForm.classList.add('hidden');
         }
     });
-}
 
-initializeApp();
+    // Initial population of scenarios
+    const defaultContainer = document.getElementById('default-scenarios-container')!;
+    defaultContainer.innerHTML = defaultScenarios.map(s => `
+        <button class="problem-button group" data-scenario-id="${s.id}">
+            <h4 class="text-lg font-bold text-gray-800 group-hover:text-white">${s.title}</h4>
+            <p class="text-sm text-gray-600 group-hover:text-indigo-200 mt-1">${s.description}</p>
+        </button>
+    `).join('');
+});
