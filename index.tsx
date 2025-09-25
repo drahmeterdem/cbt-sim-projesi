@@ -12,8 +12,9 @@ interface Scenario {
 
 interface Resource {
     id: string;
-    title: string;
     url: string;
+    // FIX: Add missing 'title' property to fix error on line 756.
+    title: string;
     type: 'article' | 'video' | 'pdf';
     associatedScenarioIds: string[];
 }
@@ -25,7 +26,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 // --- Global State & Constants ---
 let currentStudentName: string = '';
 let currentUserId: string = ''; // Will now store username
-let reviewingStudentName: string = '';
+let reviewingStudentId: string = '';
 let currentScreen: keyof typeof screens | null = null;
 let activeTeacherTab: string = 'requests'; // Default to requests for teacher workflow
 let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
@@ -137,14 +138,21 @@ const teacherDashboard = {
 
 // Teacher Review Screen
 const teacherReview = {
+    screen: document.getElementById('teacher-review-screen')!,
+    listView: document.getElementById('teacher-review-list-view')!,
+    detailView: document.getElementById('teacher-review-detail-view')!,
+    listStudentName: document.getElementById('review-list-student-name')!,
+    sessionListContainer: document.getElementById('review-session-list-container')!,
+    backToDashboardButton: document.getElementById('back-to-teacher-dashboard-button')!,
+    backToSessionListButton: document.getElementById('back-to-session-list-button')!,
     studentName: document.getElementById('review-student-name')!,
     problemDisplay: document.getElementById('review-problem-display')!,
     chatContainer: document.getElementById('review-chat-container')!,
     feedbackSection: document.getElementById('review-feedback-section')!,
     feedbackInput: document.getElementById('feedback-input') as HTMLInputElement,
     submitFeedbackButton: document.getElementById('submit-feedback-button')!,
-    backButton: document.getElementById('back-to-dashboard-button')!,
 };
+
 
 // Modals
 const rationaleModal = {
@@ -208,12 +216,12 @@ function getInitialState() {
             currentProblem: '',
             currentScenarioId: ''
         },
-        completedSimulations: [] as any[], // {scenarioId, title, finalScores, completionDate}
+        completedSimulations: [] as any[], // {scenarioId, title, finalScores, completionDate, history}
         teacherComms: {
-            questions: [] as any[], // {id, text, timestamp}
+            questions: [] as any[], // {id, text, timestamp, studentId}
             answers: [] as any[]    // {questionId, text, timestamp}
         },
-        uploadedSessions: [] as any[], // {id, transcript, aiAnalysis, teacherFeedback, timestamp, status}
+        uploadedSessions: [] as any[], // {id, transcript, aiAnalysis, teacherFeedback, timestamp, studentId}
         achievements: [] as string[] // Array of achievement IDs
     };
 }
@@ -505,7 +513,7 @@ async function getAiResponse() {
     try {
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: [...state.simulation.conversationHistory.filter((h: any) => h.role !== 'teacher_feedback').map(h => ({role: h.role, parts: h.parts}))],
+            contents: [...state.simulation.conversationHistory.filter((h: any) => h.role !== 'teacher_feedback').map(h => ({role: h.role.replace("therapist", "user").replace("client", "model"), parts: h.parts}))],
             config: {
                 systemInstruction: dynamicSystemInstruction,
                 responseMimeType: "application/json",
@@ -517,7 +525,7 @@ async function getAiResponse() {
 
         const data = JSON.parse(response.text);
         const turnId = `turn_${Date.now()}`;
-        state.simulation.conversationHistory.push({ id: turnId, role: 'model', parts: [{ text: JSON.stringify(data) }], teacherComment: '' });
+        state.simulation.conversationHistory.push({ id: turnId, role: 'client', parts: [{ text: JSON.stringify(data) }], teacherComment: '' });
         appendMessage(simulation.chatContainer, 'client', data.clientResponse, { rationale: data.rationale, turnId });
         displayOptions(data.therapistOptions);
         simulation.feedbackText.textContent = data.feedback;
@@ -545,7 +553,7 @@ async function handleOptionSelect(event: Event) {
     appendMessage(simulation.chatContainer, 'therapist', therapistMessage, { turnId });
     
     const state = loadState(currentUserId);
-    state.simulation.conversationHistory.push({ id: turnId, role: 'user', parts: [{ text: therapistMessage }], teacherComment: '' });
+    state.simulation.conversationHistory.push({ id: turnId, role: 'therapist', parts: [{ text: therapistMessage }], teacherComment: '' });
     saveState(currentUserId, state);
     
     simulation.feedbackSection.classList.add('hidden');
@@ -579,7 +587,7 @@ async function startSimulation(scenarioId: string) {
     simulation.feedbackSection.classList.add('hidden');
 
     const turnId = `turn_${Date.now()}`;
-    state.simulation.conversationHistory.push({ id: turnId, role: 'user', parts: [{ text: `Merhaba, bugün ${scenario.title} üzerine konuşmak için buradayım. Lütfen danışan olarak başla.` }], teacherComment: '' });
+    state.simulation.conversationHistory.push({ id: turnId, role: 'therapist', parts: [{ text: `Merhaba, bugün ${scenario.title} üzerine konuşmak için buradayım. Lütfen danışan olarak başla.` }], teacherComment: '' });
     saveState(currentUserId, state);
     await getAiResponse();
 }
@@ -597,11 +605,11 @@ function rebuildUiFromState(container: HTMLElement, history: any[], isReview: bo
     let lastModelResponse: any = null;
 
     history.forEach((turn: any) => {
-        if (turn.role === 'user') {
+        if (turn.role === 'therapist') {
             if(!turn.parts[0].text.includes('Lütfen danışan olarak başla.')) {
                  appendMessage(container, 'therapist', turn.parts[0].text, { turnId: turn.id, teacherComment: turn.teacherComment, isReview });
             }
-        } else if (turn.role === 'model') {
+        } else if (turn.role === 'client') {
             const data = JSON.parse(turn.parts[0].text);
             appendMessage(container, 'client', data.clientResponse, { rationale: data.rationale, turnId: turn.id, teacherComment: turn.teacherComment, isReview });
             lastModelResponse = data;
@@ -712,7 +720,7 @@ function handleTeacherLogin() {
 function calculateAverageScores(history: any[]) {
     const scores: { [key: string]: number[] } = { empathy: [], technique: [], rapport: [] };
     history.forEach(turn => {
-        if (turn.role === 'model') {
+        if (turn.role === 'client') {
             try {
                 const data = JSON.parse(turn.parts[0].text);
                 if (data.scoring) {
@@ -841,7 +849,14 @@ function populateStudentDashboard() {
     displayAchievements(currentUserId);
 
     // QA History
-    teacherQASystem.history.innerHTML = ''; // Populate this from state
+    teacherQASystem.history.innerHTML = '';
+    state.teacherComms.questions.forEach(q => {
+        appendMessage(teacherQASystem.history, 'student_question', q.text);
+        const answer = state.teacherComms.answers.find(a => a.questionId === q.id);
+        if (answer) {
+            appendMessage(teacherQASystem.history, 'teacher_answer', answer.text);
+        }
+    });
 }
 
 
@@ -866,8 +881,8 @@ async function handleViewSummary(studentId: string) {
 
     const combinedHistory = state.completedSimulations.map(sim => {
         const transcript = sim.history.map((turn: any) => {
-            if (turn.role === 'user') return `Terapist: ${turn.parts[0].text}`;
-            if (turn.role === 'model') {
+            if (turn.role === 'therapist') return `Terapist: ${turn.parts[0].text}`;
+            if (turn.role === 'client') {
                 try {
                     const data = JSON.parse(turn.parts[0].text);
                     return `Danışan: ${data.clientResponse}`;
@@ -956,6 +971,7 @@ function setActiveTeacherTab(tabName: string) {
 function populateTeacherDashboard() {
     const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
     const allStudents = Object.entries(users);
+    const approvedStudents = allStudents.filter(([, user]: [string, any]) => user.status === 'approved');
 
     // Tab 1: Requests
     const pendingStudents = allStudents.filter(([, user]: [string, any]) => user.status === 'pending');
@@ -978,7 +994,6 @@ function populateTeacherDashboard() {
 
     // Tab 2: Simulations
     let simulationsHtml = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
-    const approvedStudents = allStudents.filter(([, user]: [string, any]) => user.status === 'approved');
     if (approvedStudents.length === 0) {
         simulationsHtml = '<p class="text-center text-gray-500 py-8 col-span-full">Henüz onaylanmış öğrenci bulunmuyor.</p>';
     } else {
@@ -998,7 +1013,90 @@ function populateTeacherDashboard() {
     }
     simulationsHtml += '</div>';
     teacherDashboard.contents.simulations.innerHTML = simulationsHtml;
+
+    // Tab 3: Uploads
+    let allUploads: any[] = [];
+    approvedStudents.forEach(([username]) => {
+        const state = loadState(username as string);
+        allUploads.push(...state.uploadedSessions);
+    });
+    const uploadsContainer = document.getElementById('uploads-list-container')!;
+    if (allUploads.length === 0) {
+        uploadsContainer.innerHTML = '<p class="text-center text-gray-500 py-4">Öğrenciler tarafından yüklenmiş seans bulunmuyor.</p>';
+    } else {
+        uploadsContainer.innerHTML = allUploads.map(upload => `
+             <div class="p-4 bg-indigo-50 rounded-lg">
+                <p class="font-semibold">${upload.studentId} <span class="font-normal text-gray-500 text-sm">- ${new Date(upload.timestamp).toLocaleDateString()}</span></p>
+                <p class="text-sm mt-2 text-gray-600 truncate">"${upload.transcript.substring(0, 100)}..."</p>
+                 <button class="text-indigo-600 hover:underline mt-2 text-sm font-semibold">İncele</button>
+             </div>
+        `).join('');
+    }
+
+
+    // Tab 4: Questions
+    let allQuestions: any[] = [];
+    approvedStudents.forEach(([username]) => {
+        const state = loadState(username as string);
+        allQuestions.push(...state.teacherComms.questions);
+    });
+    const questionsContainer = document.getElementById('questions-list-container')!;
+     if (allQuestions.length === 0) {
+        questionsContainer.innerHTML = '<p class="text-center text-gray-500 py-4">Henüz öğrenci sorusu bulunmuyor.</p>';
+    } else {
+        questionsContainer.innerHTML = allQuestions.map(q => `
+            <div class="p-4 bg-amber-50 rounded-lg">
+                <p class="font-semibold">${q.studentId} sordu: <span class="font-normal text-gray-600">"${q.text}"</span></p>
+                <!-- Add answer input and button here -->
+            </div>
+        `).join('');
+    }
 }
+
+
+// --- Teacher Review Logic ---
+function displayStudentSessionsForReview(studentId: string) {
+    reviewingStudentId = studentId;
+    const state = loadState(studentId);
+    teacherReview.listStudentName.textContent = studentId;
+
+    if (state.completedSimulations.length === 0) {
+        teacherReview.sessionListContainer.innerHTML = '<p class="text-center text-gray-500 py-4">Bu öğrencinin tamamlanmış simülasyonu yok.</p>';
+    } else {
+        teacherReview.sessionListContainer.innerHTML = state.completedSimulations.map((sim, index) => `
+            <div class="flex justify-between items-center p-4 bg-white rounded-lg shadow-sm hover:bg-indigo-50 transition-colors">
+                <div>
+                    <p class="font-semibold text-gray-800">${sim.title}</p>
+                    <p class="text-sm text-gray-500">Tamamlanma: ${new Date(sim.completionDate).toLocaleString()}</p>
+                </div>
+                <button data-session-index="${index}" class="review-specific-session-button bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors text-sm font-semibold">İncele</button>
+            </div>
+        `).join('');
+    }
+
+    teacherReview.listView.classList.remove('hidden');
+    teacherReview.detailView.classList.add('hidden');
+    showScreen('teacherReview');
+}
+
+
+function reviewSpecificSession(sessionIndex: number) {
+    const state = loadState(reviewingStudentId);
+    const session = state.completedSimulations[sessionIndex];
+    if (!session) return;
+    
+    teacherReview.studentName.textContent = reviewingStudentId;
+    teacherReview.problemDisplay.textContent = session.title;
+    
+    const lastModelResponse = rebuildUiFromState(teacherReview.chatContainer, session.history, true);
+    if(lastModelResponse) {
+        updateGraphs(teacherReview.feedbackSection, lastModelResponse.scoring, lastModelResponse.clientImpact, lastModelResponse.feedback);
+    }
+
+    teacherReview.listView.classList.add('hidden');
+    teacherReview.detailView.classList.remove('hidden');
+}
+
 
 // --- Analysis Screen Logic ---
 async function handleAnalyzeTranscript() {
@@ -1016,6 +1114,7 @@ async function handleAnalyzeTranscript() {
 
     showLoader(analysis.output, "Transkript analiz ediliyor...");
     analysis.analyzeButton.setAttribute('disabled', 'true');
+    analysis.analyzeButton.innerHTML = `<span>Analiz Ediliyor...</span>`;
 
     try {
         const response = await ai.models.generateContent({
@@ -1044,11 +1143,11 @@ async function handleAnalyzeTranscript() {
             <h4>Genel Özet</h4>
             <p>${data.overallSummary}</p>
             <h4 class="mt-4">Güçlü Yönler</h4>
-            <ul>${data.strengths.map((s: string) => `<li>${s}</li>`).join('')}</ul>
+            <ul>${data.strengths.map((s: string) => `<li>• ${s}</li>`).join('')}</ul>
             <h4 class="mt-4">Geliştirilebilecek Alanlar</h4>
-            <ul>${data.areasForImprovement.map((s: string) => `<li>${s}</li>`).join('')}</ul>
+            <ul>${data.areasForImprovement.map((s: string) => `<li>• ${s}</li>`).join('')}</ul>
             <h4 class="mt-4">Kritik Anların Analizi</h4>
-            <ul>${data.keyMomentsAnalysis.map((s: string) => `<li>${s}</li>`).join('')}</ul>
+            <ul>${data.keyMomentsAnalysis.map((s: string) => `<li>• ${s}</li>`).join('')}</ul>
         `;
         analysis.sendButton.classList.remove('hidden');
 
@@ -1062,6 +1161,7 @@ async function handleAnalyzeTranscript() {
         analysis.output.innerHTML = `<p class="text-red-500">${errorMessage}</p>`;
     } finally {
         analysis.analyzeButton.removeAttribute('disabled');
+        analysis.analyzeButton.innerHTML = `<span class="material-symbols-outlined mr-2">psychology</span><span>Yapay Zeka ile Analiz Et</span>`;
     }
 }
 
@@ -1140,7 +1240,41 @@ function setupEventListeners() {
     goToAnalysisButton.addEventListener('click', () => showScreen('sessionAnalysis'));
     analysis.backButton.addEventListener('click', () => showScreen('studentDashboard'));
     analysis.analyzeButton.addEventListener('click', handleAnalyzeTranscript);
+    analysis.sendButton.addEventListener('click', () => {
+        if(currentAnalysisCache) {
+            const state = loadState(currentUserId);
+            state.uploadedSessions.push({
+                id: `upload_${Date.now()}`,
+                studentId: currentUserId,
+                ...currentAnalysisCache,
+                teacherFeedback: '',
+                timestamp: new Date().toISOString()
+            });
+            saveState(currentUserId, state);
+            showNotification("Analiz başarıyla öğretmene gönderildi!", 3000);
+            showScreen('studentDashboard');
+            currentAnalysisCache = null; // Clear cache
+        }
+    });
 
+    teacherQASystem.button.addEventListener('click', () => {
+        const questionText = teacherQASystem.input.value.trim();
+        if(!questionText) return;
+
+        const state = loadState(currentUserId);
+        const newQuestion = {
+            id: `q_${Date.now()}`,
+            studentId: currentUserId,
+            text: questionText,
+            timestamp: new Date().toISOString()
+        };
+        state.teacherComms.questions.push(newQuestion);
+        saveState(currentUserId, state);
+        
+        appendMessage(teacherQASystem.history, 'student_question', questionText);
+        teacherQASystem.input.value = '';
+        showNotification("Sorunuz öğretmene iletildi.", 3000);
+    });
 
     teacherDashboard.tabs.forEach(tab => {
         tab.addEventListener('click', () => {
@@ -1157,13 +1291,25 @@ function setupEventListeners() {
 
         if (summaryButton) {
             const studentId = (summaryButton as HTMLElement).dataset.studentId;
-            if (studentId) {
-                handleViewSummary(studentId);
-            }
+            if (studentId) handleViewSummary(studentId);
         }
-        // TODO: Handle view sessions button
+        if (sessionsButton) {
+            const studentId = (sessionsButton as HTMLElement).dataset.studentId;
+            if (studentId) displayStudentSessionsForReview(studentId);
+        }
     });
 
+    teacherReview.screen.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        const specificSessionButton = target.closest('.review-specific-session-button');
+        if (specificSessionButton) {
+            const sessionIndex = parseInt((specificSessionButton as HTMLElement).dataset.sessionIndex!, 10);
+            reviewSpecificSession(sessionIndex);
+        }
+    });
+    
+    teacherReview.backToDashboardButton.addEventListener('click', () => showScreen('teacherDashboard'));
+    teacherReview.backToSessionListButton.addEventListener('click', () => displayStudentSessionsForReview(reviewingStudentId));
 
     rationaleModal.closeButton.addEventListener('click', () => hideModal('rationale'));
     summaryModal.closeButton.addEventListener('click', () => hideModal('summary'));
