@@ -28,6 +28,7 @@ let currentStudentName: string = '';
 let currentUserId: string = ''; // Will now store Firebase UID
 let reviewingStudentId: string = '';
 let reviewingStudentName: string = '';
+let reviewingSessionIndex: number = -1;
 let currentScreen: keyof typeof screens | null = null;
 let activeTeacherTab: string = 'requests'; // Default to requests for teacher workflow
 let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
@@ -150,7 +151,7 @@ const teacherReview = {
     problemDisplay: document.getElementById('review-problem-display')!,
     chatContainer: document.getElementById('review-chat-container')!,
     feedbackSection: document.getElementById('review-feedback-section')!,
-    feedbackInput: document.getElementById('feedback-input') as HTMLInputElement,
+    feedbackInput: document.getElementById('feedback-input') as HTMLTextAreaElement,
     submitFeedbackButton: document.getElementById('submit-feedback-button')!,
 };
 
@@ -402,8 +403,8 @@ function appendMessage(
             commentInputDiv.id = `comment-input-${options.turnId}`;
             commentInputDiv.className = 'hidden w-full flex gap-2 mt-2';
             commentInputDiv.innerHTML = `
-                <input type="text" placeholder="Yorum ekle..." class="flex-grow rounded-lg border-gray-300 shadow-sm text-sm">
-                <button class="submit-inline-comment rounded-lg px-3 bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-all">Gönder</button>
+                <input type="text" placeholder="Yorum ekle..." class="inline-comment-input flex-grow rounded-lg border-gray-300 shadow-sm text-sm">
+                <button data-turn-id="${options.turnId}" class="submit-inline-comment rounded-lg px-3 bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-all">Gönder</button>
             `;
             messageWrapper.appendChild(commentInputDiv);
         }
@@ -1129,6 +1130,48 @@ async function populateTeacherDashboard() {
 
 
 // --- Teacher Review Logic ---
+async function addTeacherComment(studentId: string, sessionIndex: number, turnId: string, commentText: string) {
+    if (!studentId || sessionIndex < 0 || !turnId || !commentText) return false;
+
+    try {
+        const state = await loadState(studentId);
+        const session = state.completedSimulations[sessionIndex];
+        if (!session) return false;
+
+        const turn = session.history.find((t: any) => t.id === turnId);
+        if (!turn) return false;
+
+        turn.teacherComment = commentText;
+        await saveState(studentId, state);
+        return true;
+    } catch (error) {
+        console.error("Error adding teacher comment:", error);
+        return false;
+    }
+}
+
+async function addGeneralFeedback(studentId: string, sessionIndex: number, feedbackText: string) {
+    if (!studentId || sessionIndex < 0 || !feedbackText) return false;
+
+    try {
+        const state = await loadState(studentId);
+        const session = state.completedSimulations[sessionIndex];
+        if (!session) return false;
+
+        session.history.push({
+            id: `feedback_${Date.now()}`,
+            role: 'teacher_feedback',
+            parts: [{ text: feedbackText }],
+        });
+
+        await saveState(studentId, state);
+        return true;
+    } catch (error) {
+        console.error("Error adding general feedback:", error);
+        return false;
+    }
+}
+
 async function displayStudentSessionsForReview(studentId: string, studentName: string) {
     reviewingStudentId = studentId;
     reviewingStudentName = studentName;
@@ -1156,6 +1199,7 @@ async function displayStudentSessionsForReview(studentId: string, studentName: s
 
 
 async function reviewSpecificSession(sessionIndex: number) {
+    reviewingSessionIndex = sessionIndex;
     const state = await loadState(reviewingStudentId);
     const session = state.completedSimulations[sessionIndex];
     if (!session) return;
@@ -1386,15 +1430,55 @@ function setupEventListeners() {
         }
     });
 
-    teacherReview.screen.addEventListener('click', (e) => {
+    teacherReview.screen.addEventListener('click', async (e) => {
         const target = e.target as HTMLElement;
         const specificSessionButton = target.closest('.review-specific-session-button');
+        const addCommentButton = target.closest('.add-inline-comment-button');
+        const submitCommentButton = target.closest('.submit-inline-comment');
+
         if (specificSessionButton) {
             const sessionIndex = parseInt((specificSessionButton as HTMLElement).dataset.sessionIndex!, 10);
             reviewSpecificSession(sessionIndex);
         }
+
+        if (addCommentButton) {
+            const turnId = (addCommentButton as HTMLElement).dataset.turnId;
+            if (turnId) {
+                const commentInputDiv = document.getElementById(`comment-input-${turnId}`);
+                commentInputDiv?.classList.toggle('hidden');
+            }
+        }
+
+        if (submitCommentButton) {
+            const turnId = (submitCommentButton as HTMLElement).dataset.turnId;
+            const commentInput = submitCommentButton.previousElementSibling as HTMLInputElement;
+            const commentText = commentInput.value.trim();
+            if (turnId && commentText) {
+                const success = await addTeacherComment(reviewingStudentId, reviewingSessionIndex, turnId, commentText);
+                if (success) {
+                    showNotification("Yorum başarıyla eklendi.", 2000);
+                    await reviewSpecificSession(reviewingSessionIndex); // Refresh the view
+                } else {
+                    showNotification("Yorum eklenirken hata oluştu.", 3000, 'error');
+                }
+            }
+        }
     });
     
+    teacherReview.submitFeedbackButton.addEventListener('click', async () => {
+        const feedbackText = teacherReview.feedbackInput.value.trim();
+        if (feedbackText) {
+            const success = await addGeneralFeedback(reviewingStudentId, reviewingSessionIndex, feedbackText);
+            if(success) {
+                showNotification("Genel geri bildirim eklendi.", 2000);
+                teacherReview.feedbackInput.value = '';
+                await reviewSpecificSession(reviewingSessionIndex); // Refresh view to show feedback
+            } else {
+                 showNotification("Geri bildirim eklenirken hata oluştu.", 3000, 'error');
+            }
+        }
+    });
+
     teacherReview.backToDashboardButton.addEventListener('click', () => {
         setActiveTeacherTab('simulations'); // Go back to the student list
         showScreen('teacherDashboard');
@@ -1417,6 +1501,12 @@ function setupEventListeners() {
 async function initializeApp() {
     setupEventListeners();
 
+    // Proactive check for Firebase configuration
+    if (fb.firebaseConfig.apiKey === "YOUR_API_KEY") {
+        alert("UYARI: Firebase yapılandırması tamamlanmamış. Lütfen 'firebase.ts' dosyasını kendi proje bilgilerinizle güncelleyin. Aksi takdirde uygulama çalışmayacaktır.");
+        return;
+    }
+
     // Initial population of scenarios
     const defaultContainer = document.getElementById('default-scenarios-container')!;
     defaultContainer.innerHTML = defaultScenarios.map(s => `
@@ -1426,25 +1516,23 @@ async function initializeApp() {
         </button>
     `).join('');
 
-    // --- Authentication Gatekeeper ---
-    // This logic now correctly prioritizes teacher session over Firebase auth.
-    const teacherSession = JSON.parse(sessionStorage.getItem(TEACHER_SESSION_KEY) || 'null');
-    if (teacherSession && teacherSession.type === 'teacher') {
-        // Teacher is logged in, show teacher dashboard. This takes precedence and stops further checks.
-        currentStudentName = 'Öğretmen Hesabı';
-        studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span id="student-name-display" class="font-semibold text-gray-800">${currentStudentName}</span>`;
-        studentInfo.classList.remove('hidden');
-        logoutButton.classList.remove('hidden');
-        populateTeacherNav();
-        await populateTeacherDashboard();
-        setActiveTeacherTab('requests'); // Default tab
-        showScreen('teacherDashboard');
-        return; // IMPORTANT: Stop execution here to prevent onAuthStateChanged from overriding.
-    }
-
+    // --- Unified & Robust Authentication Gatekeeper ---
     fb.onAuthStateChanged(async (user) => {
-        if (user) {
-            // A Firebase user is logged in (must be a student).
+        const teacherSession = JSON.parse(sessionStorage.getItem(TEACHER_SESSION_KEY) || 'null');
+
+        // Priority 1: Check for an active teacher session
+        if (teacherSession && teacherSession.type === 'teacher') {
+            currentStudentName = 'Öğretmen Hesabı';
+            studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span id="student-name-display" class="font-semibold text-gray-800">${currentStudentName}</span>`;
+            studentInfo.classList.remove('hidden');
+            logoutButton.classList.remove('hidden');
+            populateTeacherNav();
+            await populateTeacherDashboard();
+            setActiveTeacherTab(activeTeacherTab || 'requests');
+            showScreen('teacherDashboard');
+        } 
+        // Priority 2: Check for a logged-in Firebase user (student)
+        else if (user) {
             const userData = await fb.getUserData(user.uid);
             if (userData && userData.status === 'approved') {
                 currentUserId = user.uid;
@@ -1456,12 +1544,13 @@ async function initializeApp() {
                 await populateStudentDashboard();
                 showScreen('studentDashboard');
             } else {
-                 // Student user is not approved or data is missing. Sign them out.
+                 // Student is not approved or data is missing. Sign them out.
                  // This will trigger onAuthStateChanged again with user=null.
                  await fb.logoutUser();
             }
-        } else {
-            // No teacher session and no Firebase user. Show login screen.
+        } 
+        // Priority 3: No one is logged in
+        else {
             currentUserId = '';
             currentStudentName = '';
             showScreen('login');
