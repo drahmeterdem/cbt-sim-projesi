@@ -3,8 +3,17 @@
 declare const firebase: any;
 
 // --- Firebase Initialization ---
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
+
+// #############################################################################
+// #                                                                           #
+// #    ÖNEMLİ UYARI: LÜTFEN BU BÖLÜMÜ KENDİ FIREBASE PROJE                    #
+// #    BİLGİLERİNİZLE GÜNCELLEYİN. Aksi takdirde uygulama çalışmayacaktır.    #
+// #    Firebase konsolundan (console.firebase.google.com) proje              #
+// #    ayarlarından bu bilgileri alabilirsiniz.                               #
+// #                                                                           #
+// #############################################################################
+
+export const firebaseConfig = {
   apiKey: "AIzaSyBMOhPCumWJncjfch4GhdPEnwO03c_8o5E",
   authDomain: "cbt-sim-projesi.firebaseapp.com",
   projectId: "cbt-sim-projesi",
