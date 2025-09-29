@@ -1008,26 +1008,6 @@ async function handleViewSummary(studentId: string, studentName: string) {
     }
 }
 
-
-async function handleApprovalAction(event: Event) {
-    const target = event.target as HTMLElement;
-    const button = target.closest('.approve-button, .reject-button') as HTMLButtonElement | null;
-    if (!button) return;
-
-    const userId = button.dataset.userId!;
-    const action = button.dataset.action!;
-
-    try {
-        await fb.updateUserStatus(userId, action === 'approve' ? 'approved' : 'rejected');
-        showNotification(`Öğrenci ${action === 'approve' ? 'onaylandı' : 'reddedildi'}.`, 3000, 'success');
-        await populateTeacherDashboard(); // Refresh the list
-    } catch (error) {
-        showNotification('İşlem sırasında bir hata oluştu.', 3000, 'error');
-        console.error("Error updating user status:", error);
-    }
-}
-
-
 function setActiveTeacherTab(tabName: string) {
     activeTeacherTab = tabName;
 
@@ -1411,22 +1391,45 @@ function setupEventListeners() {
         }
     });
 
-    
-    teacherDashboard.contents.requests.addEventListener('click', handleApprovalAction);
-    teacherDashboard.contents.simulations.addEventListener('click', (event) => {
+    // --- Consolidated Teacher Dashboard Event Listener ---
+    teacherDashboard.contentContainer.addEventListener('click', async (event) => {
         const target = event.target as HTMLElement;
-        const summaryButton = target.closest('.view-summary-button') as HTMLElement;
-        const sessionsButton = target.closest('.view-sessions-button') as HTMLElement;
 
+        // --- Handle Approval/Rejection in Requests Tab ---
+        const approvalButton = target.closest('.approve-button, .reject-button') as HTMLButtonElement | null;
+        if (approvalButton) {
+            const userId = approvalButton.dataset.userId!;
+            const action = approvalButton.dataset.action!;
+            try {
+                await fb.updateUserStatus(userId, action === 'approve' ? 'approved' : 'rejected');
+                showNotification(`Öğrenci ${action === 'approve' ? 'onaylandı' : 'reddedildi'}.`, 3000, 'success');
+                await populateTeacherDashboard(); // Refresh the list
+            } catch (error) {
+                showNotification('İşlem sırasında bir hata oluştu.', 3000, 'error');
+                console.error("Error updating user status:", error);
+            }
+            return;
+        }
+
+        // --- Handle Actions in Simulations Tab ---
+        const summaryButton = target.closest('.view-summary-button') as HTMLElement;
         if (summaryButton) {
             const studentId = summaryButton.dataset.studentId;
             const studentName = summaryButton.dataset.studentName;
-            if (studentId && studentName) handleViewSummary(studentId, studentName);
+            if (studentId && studentName) {
+                handleViewSummary(studentId, studentName);
+            }
+            return;
         }
+
+        const sessionsButton = target.closest('.view-sessions-button') as HTMLElement;
         if (sessionsButton) {
             const studentId = sessionsButton.dataset.studentId;
             const studentName = sessionsButton.dataset.studentName;
-            if (studentId && studentName) displayStudentSessionsForReview(studentId, studentName);
+            if (studentId && studentName) {
+                displayStudentSessionsForReview(studentId, studentName);
+            }
+            return;
         }
     });
 
