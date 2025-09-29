@@ -441,11 +441,13 @@ async function handleGlobalClick(e: MouseEvent) {
             await renderTeacherDashboard('requests');
             break;
         case 'view-summary':
-             // await handleViewSummary(actionData.studentId!, actionData.studentName!);
+            await handleViewSummary(actionData.studentId!, actionData.studentName!);
             break;
     }
-    showLoader(false);
+    // The loader is hidden by the responsible function (e.g. handleAuthenticationState or the action handler itself on error)
+    // To avoid complexity, we avoid a generic showLoader(false) here.
 }
+
 
 async function handleLogin() {
     const username = (document.getElementById('username-input') as HTMLInputElement).value.trim();
@@ -455,13 +457,14 @@ async function handleLogin() {
         return;
     }
     try {
-        const user = await fb.loginUser(username, password);
-        // On successful login, let the central state handler take over
-        await handleAuthenticationState(user);
+        await fb.loginUser(username, password);
+        // On successful login, the onAuthStateChanged listener will trigger handleAuthenticationState
+        // which will manage the loader and render the correct screen.
     } catch (error) {
         console.error("Login error:", error);
-        // On failure, just re-render the login screen with an error
+        // On failure, explicitly re-render the login screen with an error and hide the loader.
         renderLoginScreen('Geçersiz kullanıcı adı veya şifre.');
+        showLoader(false);
     }
 }
 
@@ -492,19 +495,27 @@ async function handleRegister() {
             showError('Kayıt sırasında bir hata oluştu.');
         }
         console.error("Registration error:", error);
+    } finally {
+        showLoader(false);
     }
 }
 
 async function handleTeacherLogin() {
     const password = (document.getElementById('teacher-password-input') as HTMLInputElement).value;
-    if (password === TEACHER_PASSWORD) {
-        sessionStorage.setItem(TEACHER_SESSION_KEY, 'true');
-        // Let the central state handler take over
-        await handleAuthenticationState(null);
-    } else {
-        const errorDiv = document.getElementById('teacher-login-error')!;
-        errorDiv.textContent = 'Geçersiz yönetici şifresi.';
-        errorDiv.classList.remove('hidden');
+    try {
+        if (password === TEACHER_PASSWORD) {
+            sessionStorage.setItem(TEACHER_SESSION_KEY, 'true');
+            // Manually trigger the state handler to render the teacher UI
+            await handleAuthenticationState(null);
+        } else {
+            const errorDiv = document.getElementById('teacher-login-error')!;
+            errorDiv.textContent = 'Geçersiz yönetici şifresi.';
+            errorDiv.classList.remove('hidden');
+            showLoader(false);
+        }
+    } catch (error) {
+        renderLoginScreen('Öğretmen girişi sırasında bir hata oluştu.');
+        showLoader(false);
     }
 }
 
@@ -521,41 +532,104 @@ async function handleLogout() {
     }
 }
 
+async function handleViewSummary(studentId: string, studentName: string) {
+    showLoader(true);
+    try {
+        const state = await loadState(studentId);
+        if (!state || !state.completedSimulations || state.completedSimulations.length === 0) {
+            showNotification(`${studentName} için özetlenecek tamamlanmış simülasyon bulunmuyor.`, 4000, 'error');
+            return;
+        }
+
+        const formattedHistory = state.completedSimulations.map((sim: any) => {
+            const conversationText = sim.conversationHistory
+                .map((turn: any) => `Terapist: ${turn.therapist}\nDanışan: ${turn.clientResponse}`)
+                .join('\n\n');
+            return `--- SİMÜLASYON: ${sim.title} ---\n${conversationText}`;
+        }).join('\n\n---\n\n');
+
+        const request = {
+            model: "gemini-2.5-flash",
+            contents: formattedHistory,
+            config: {
+                systemInstruction: studentSummarySystemInstruction,
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        overallPerformanceSummary: { type: Type.STRING },
+                        recurringStrengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        patternsForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        actionableSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    }
+                }
+            }
+        };
+
+        const response = await ai.models.generateContent(request);
+        const summaryData = JSON.parse(response.text);
+
+        const summaryHtml = `
+            <h4>Genel Performans</h4>
+            <p>${summaryData.overallPerformanceSummary}</p>
+            <h4 class="mt-4">Tekrar Eden Güçlü Yönler</h4>
+            <ul>${summaryData.recurringStrengths.map((s: string) => `<li>- ${s}</li>`).join('')}</ul>
+            <h4 class="mt-4">Geliştirilmesi Gereken Yönler</h4>
+            <ul>${summaryData.patternsForImprovement.map((s: string) => `<li>- ${s}</li>`).join('')}</ul>
+            <h4 class="mt-4">Eyleme Geçirilebilir Öneriler</h4>
+            <ul>${summaryData.actionableSuggestions.map((s: string) => `<li>- ${s}</li>`).join('')}</ul>
+        `;
+
+        showModal('summary', studentName, summaryHtml);
+
+    } catch (error) {
+        console.error("Error generating student summary:", error);
+        showNotification('AI özeti oluşturulurken bir hata oluştu.', 4000, 'error');
+    } finally {
+        showLoader(false);
+    }
+}
+
 
 // --- Central Authentication & State Logic ---
 
 async function handleAuthenticationState(user: any) {
     showLoader(true);
-    const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
+    try {
+        const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
 
-    if (isTeacher) {
-        currentStudentName = 'Öğretmen Hesabı';
-        studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">${currentStudentName}</span>`;
-        studentInfo.classList.remove('hidden');
-        await renderTeacherDashboard(activeTeacherTab);
-    } else if (user) {
-        const userData = await fb.getUserData(user.uid);
-        if (userData && userData.status === 'approved') {
-            currentUserId = user.uid;
-            currentStudentName = userData.username;
-            studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
+        if (isTeacher) {
+            currentStudentName = 'Öğretmen Hesabı';
+            studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">${currentStudentName}</span>`;
             studentInfo.classList.remove('hidden');
-            await renderStudentDashboard();
+            await renderTeacherDashboard(activeTeacherTab);
+        } else if (user) {
+            const userData = await fb.getUserData(user.uid);
+            if (userData && userData.status === 'approved') {
+                currentUserId = user.uid;
+                currentStudentName = userData.username;
+                studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
+                studentInfo.classList.remove('hidden');
+                await renderStudentDashboard();
+            } else {
+                await fb.logoutUser();
+                const message = userData?.status === 'pending'
+                    ? 'Hesabınız öğretmen onayını bekliyor.'
+                    : 'Hesabınız reddedildi veya geçersiz.';
+                renderLoginScreen(message);
+            }
         } else {
-             // Handle cases where user is logged in but not approved (pending, rejected)
-            await fb.logoutUser(); // Log them out
-            const message = userData?.status === 'pending'
-                ? 'Hesabınız öğretmen onayını bekliyor.'
-                : 'Hesabınız reddedildi veya geçersiz.';
-            renderLoginScreen(message); // Show login with appropriate error
+            currentUserId = '';
+            currentStudentName = '';
+            renderLoginScreen();
         }
-    } else {
-        // Logged out state
-        currentUserId = '';
-        currentStudentName = '';
-        renderLoginScreen();
+    } catch (error) {
+        console.error("Critical error during authentication state change:", error);
+        renderLoginScreen("Bir hata oluştu. Lütfen tekrar giriş yapmayı deneyin.");
+    } finally {
+        // This is the crucial fix: ensure the loader is always hidden after attempting to render a state.
+        showLoader(false);
     }
-    showLoader(false);
 }
 
 
