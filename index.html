@@ -47,6 +47,12 @@
         .teacher-content.hidden {
             @apply !hidden;
         }
+        .nav-link.active {
+            @apply bg-indigo-100 text-indigo-700;
+        }
+        .nav-link-teacher.active {
+            @apply bg-amber-100 text-amber-700;
+        }
         @keyframes fade-in-up {
             from {
                 opacity: 0;
@@ -88,10 +94,9 @@
 </svg>
 <h1 class="text-gray-800 text-xl font-bold leading-tight tracking-[-0.015em]">AI Terapi Simülasyonu</h1>
 </div>
+<nav id="main-nav" class="hidden items-center gap-2"></nav>
 <div class="flex items-center gap-4">
 <div id="student-info" class="hidden items-center gap-2 text-gray-600">
-    <span class="material-symbols-outlined">person</span>
-    <span id="student-name-display" class="font-semibold"></span>
 </div>
 <button id="logout-button" class="hidden flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all duration-300 shadow-sm hover:shadow-md">
     <span class="material-symbols-outlined mr-2">logout</span>
@@ -252,13 +257,8 @@
 
 <!-- Session Analysis Screen -->
 <div id="session-analysis-screen" class="screen hidden w-full">
-     <div class="flex items-center justify-between mb-6">
-        <button id="back-to-dashboard-from-analysis" class="flex items-center justify-center rounded-lg h-10 px-4 bg-white/80 text-gray-600 font-semibold hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md">
-            <span class="material-symbols-outlined mr-2">arrow_back</span>
-            <span>Panele Dön</span>
-        </button>
-        <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold text-center">Seans Transkript Analizi</h2>
-        <div class="w-32"></div>
+     <div class="text-center mb-6">
+        <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Seans Transkript Analizi</h2>
      </div>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl">
@@ -362,22 +362,11 @@
 
 <!-- Teacher Dashboard Screen -->
 <div id="teacher-dashboard-screen" class="screen hidden">
-    <div class="text-center">
+    <div class="text-center mb-6">
         <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Öğretmen Paneli</h2>
         <p class="text-gray-600 text-lg mt-2">Öğrenci çalışmalarını ve etkileşimlerini buradan yönetin.</p>
     </div>
-    <!-- Tabs -->
-    <div class="my-6 border-b border-gray-200">
-        <nav class="-mb-px flex space-x-6 justify-center" aria-label="Tabs">
-            <button data-tab="requests" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Kayıt İstekleri</button>
-            <button data-tab="simulations" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Simülasyonlar</button>
-            <button data-tab="uploads" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Yüklenen Seanslar</button>
-            <button data-tab="questions" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Öğrenci Soruları</button>
-            <button data-tab="analytics" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Sınıf Analitiği</button>
-            <button data-tab="builder" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Senaryo Oluşturucu</button>
-            <button data-tab="library" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Kaynak Kütüphanesi</button>
-        </nav>
-    </div>
+    
     <div id="teacher-content-container" class="transition-opacity duration-300">
         <div id="simulations-content" class="teacher-content hidden"></div>
         <div id="requests-content" class="teacher-content"></div>
