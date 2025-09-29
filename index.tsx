@@ -1,4 +1,3 @@
-
 // --- Gemini AI Client and Type Imports ---
 import { GoogleGenAI, Type } from "@google/genai";
 import * as fb from './firebase.js';
@@ -49,6 +48,7 @@ const screens = {
 };
 
 // General UI
+const mainNav = document.getElementById('main-nav')!;
 const studentInfo = document.getElementById('student-info')!;
 const logoutButton = document.getElementById('logout-button')!;
 const backToSelectionButton = document.getElementById('back-to-selection-button')!;
@@ -125,7 +125,6 @@ const analysis = {
 
 // Teacher Dashboard
 const teacherDashboard = {
-    tabs: document.querySelectorAll('.teacher-tab'),
     contentContainer: document.getElementById('teacher-content-container')!,
     contents: {
         simulations: document.getElementById('simulations-content')!,
@@ -318,6 +317,15 @@ function showScreen(screenId: keyof typeof screens) {
     Object.values(screens).forEach(screen => screen.classList.add('hidden'));
     screens[screenId].classList.remove('hidden');
     currentScreen = screenId;
+    
+    // Update active state in nav
+    document.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('data-screen') === screenId) {
+            link.classList.add('active');
+        }
+    });
+
     window.scrollTo(0, 0);
 }
 
@@ -492,6 +500,40 @@ function hideModal(modal: 'rationale' | 'summary') {
     } else {
         summaryModal.container.classList.add('hidden');
     }
+}
+
+// --- Navigation ---
+function populateTeacherNav() {
+    mainNav.innerHTML = `
+        <button data-tab="requests" class="nav-link nav-link-teacher active flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-amber-100 transition-colors">
+            <span class="material-symbols-outlined">how_to_reg</span> Kayıt İstekleri
+        </button>
+        <button data-tab="simulations" class="nav-link nav-link-teacher flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-amber-100 transition-colors">
+            <span class="material-symbols-outlined">psychology</span> Simülasyonlar
+        </button>
+        <button data-tab="uploads" class="nav-link nav-link-teacher flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-amber-100 transition-colors">
+            <span class="material-symbols-outlined">upload_file</span> Yüklenenler
+        </button>
+         <button data-tab="questions" class="nav-link nav-link-teacher flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-amber-100 transition-colors">
+            <span class="material-symbols-outlined">contact_support</span> Sorular
+        </button>
+    `;
+    mainNav.classList.remove('hidden');
+}
+
+function populateStudentNav() {
+    mainNav.innerHTML = `
+        <button data-screen="studentDashboard" class="nav-link active flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors">
+            <span class="material-symbols-outlined">dashboard</span> Panelim
+        </button>
+        <button data-screen="problemSelection" class="nav-link flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors">
+            <span class="material-symbols-outlined">play_circle</span> Yeni Simülasyon
+        </button>
+        <button data-screen="sessionAnalysis" class="nav-link flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors">
+            <span class="material-symbols-outlined">science</span> Seans Analizi
+        </button>
+    `;
+    mainNav.classList.remove('hidden');
 }
 
 // --- Simulation Logic ---
@@ -987,9 +1029,14 @@ async function handleApprovalAction(event: Event) {
 
 function setActiveTeacherTab(tabName: string) {
     activeTeacherTab = tabName;
-    teacherDashboard.tabs.forEach(t => t.classList.remove('border-indigo-500', 'text-indigo-600'));
-    const activeTab = document.querySelector(`.teacher-tab[data-tab="${tabName}"]`);
-    activeTab?.classList.add('border-indigo-500', 'text-indigo-600');
+
+    // Update nav link active state
+    document.querySelectorAll('.nav-link-teacher').forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('data-tab') === tabName) {
+            link.classList.add('active');
+        }
+    });
     
     Object.values(teacherDashboard.contents).forEach(content => content.classList.add('hidden'));
     const activeContent = teacherDashboard.contents[tabName as keyof typeof teacherDashboard.contents];
@@ -1266,7 +1313,7 @@ function setupEventListeners() {
 
     backToSelectionButton.addEventListener('click', () => showScreen('problemSelection'));
     goToAnalysisButton.addEventListener('click', () => showScreen('sessionAnalysis'));
-    analysis.backButton.addEventListener('click', () => showScreen('studentDashboard'));
+    // analysis.backButton.addEventListener('click', () => showScreen('studentDashboard')); // Replaced by Nav
     analysis.analyzeButton.addEventListener('click', handleAnalyzeTranscript);
     analysis.sendButton.addEventListener('click', async () => {
         if(currentAnalysisCache) {
@@ -1303,13 +1350,23 @@ function setupEventListeners() {
         teacherQASystem.input.value = '';
         showNotification("Sorunuz öğretmene iletildi.", 3000);
     });
+    
+    mainNav.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        const navButton = target.closest('.nav-link') as HTMLButtonElement | null;
+        if (!navButton) return;
 
-    teacherDashboard.tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const tabName = (tab as HTMLElement).dataset.tab!;
-            setActiveTeacherTab(tabName);
-        });
+        const screen = navButton.dataset.screen as keyof typeof screens | undefined;
+        const tab = navButton.dataset.tab;
+
+        if (screen) {
+            showScreen(screen);
+        } else if (tab) {
+            setActiveTeacherTab(tab);
+            showScreen('teacherDashboard'); // Always show the main dashboard container
+        }
     });
+
     
     teacherDashboard.contents.requests.addEventListener('click', handleApprovalAction);
     teacherDashboard.contents.simulations.addEventListener('click', (event) => {
@@ -1338,7 +1395,10 @@ function setupEventListeners() {
         }
     });
     
-    teacherReview.backToDashboardButton.addEventListener('click', () => showScreen('teacherDashboard'));
+    teacherReview.backToDashboardButton.addEventListener('click', () => {
+        setActiveTeacherTab('simulations'); // Go back to the student list
+        showScreen('teacherDashboard');
+    });
     teacherReview.backToSessionListButton.addEventListener('click', () => displayStudentSessionsForReview(reviewingStudentId, reviewingStudentName));
 
     rationaleModal.closeButton.addEventListener('click', () => hideModal('rationale'));
@@ -1366,20 +1426,24 @@ async function initializeApp() {
         </button>
     `).join('');
 
-    // Let the onAuthStateChanged callback be the single source of truth for routing.
-    fb.onAuthStateChanged(async (user) => {
-        const teacherSession = JSON.parse(sessionStorage.getItem(TEACHER_SESSION_KEY) || 'null');
+    // --- Authentication Gatekeeper ---
+    // This logic now correctly prioritizes teacher session over Firebase auth.
+    const teacherSession = JSON.parse(sessionStorage.getItem(TEACHER_SESSION_KEY) || 'null');
+    if (teacherSession && teacherSession.type === 'teacher') {
+        // Teacher is logged in, show teacher dashboard. This takes precedence and stops further checks.
+        currentStudentName = 'Öğretmen Hesabı';
+        studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span id="student-name-display" class="font-semibold text-gray-800">${currentStudentName}</span>`;
+        studentInfo.classList.remove('hidden');
+        logoutButton.classList.remove('hidden');
+        populateTeacherNav();
+        await populateTeacherDashboard();
+        setActiveTeacherTab('requests'); // Default tab
+        showScreen('teacherDashboard');
+        return; // IMPORTANT: Stop execution here to prevent onAuthStateChanged from overriding.
+    }
 
-        if (teacherSession && teacherSession.type === 'teacher') {
-            // Teacher is logged in, show teacher dashboard. This takes precedence.
-            currentStudentName = 'Öğretmen';
-            studentInfo.innerHTML = `<span class="material-symbols-outlined">school</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
-            studentInfo.classList.remove('hidden');
-            logoutButton.classList.remove('hidden');
-            await populateTeacherDashboard();
-            setActiveTeacherTab('requests');
-            showScreen('teacherDashboard');
-        } else if (user) {
+    fb.onAuthStateChanged(async (user) => {
+        if (user) {
             // A Firebase user is logged in (must be a student).
             const userData = await fb.getUserData(user.uid);
             if (userData && userData.status === 'approved') {
@@ -1388,6 +1452,7 @@ async function initializeApp() {
                 studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
                 studentInfo.classList.remove('hidden');
                 logoutButton.classList.remove('hidden');
+                populateStudentNav();
                 await populateStudentDashboard();
                 showScreen('studentDashboard');
             } else {
@@ -1404,6 +1469,8 @@ async function initializeApp() {
             loginError.classList.add('hidden');
             studentInfo.classList.add('hidden');
             logoutButton.classList.add('hidden');
+            mainNav.classList.add('hidden');
+            mainNav.innerHTML = '';
             backToSelectionButton.classList.add('hidden');
             saveProgressButton.classList.add('hidden');
         }
