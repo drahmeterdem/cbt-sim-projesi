@@ -381,9 +381,13 @@ async function renderTeacherDashboard(tab = 'requests') {
                 </div>
             </div>
         `);
-    } catch(error) {
+    } catch(error: any) {
         console.error("Error rendering teacher dashboard:", error);
-        renderLoginScreen("Öğretmen paneli yüklenirken bir hata oluştu.");
+        let errorMessage = "Öğretmen paneli yüklenirken bir hata oluştu.";
+        if (error.code && error.code.includes('permission-denied')) {
+            errorMessage = "Veritabanı okuma izni hatası. Lütfen Firebase Firestore kurallarınızı kontrol edin.";
+        }
+        renderLoginScreen(errorMessage);
     } finally {
         showLoader(false);
     }
@@ -431,7 +435,7 @@ async function handleGlobalClick(e: MouseEvent) {
             await handleRegister();
             break;
         case 'teacher-login':
-            await handleTeacherLogin();
+            handleTeacherLogin(); // This is now synchronous
             break;
         case 'logout':
             await handleLogout();
@@ -476,11 +480,9 @@ async function handleLogin() {
         return;
     }
     try {
-        // Explicitly clear any teacher session to prevent conflicts
-        sessionStorage.removeItem(TEACHER_SESSION_KEY);
         await fb.loginUser(username, password);
-        // On successful login, onAuthStateChanged will trigger handleAuthenticationState.
-        // handleAuthenticationState will call a rendering function that manages its own loader.
+        // On successful login, onAuthStateChanged will trigger handleStudentAuthState.
+        // handleStudentAuthState will hide the loader.
     } catch (error) {
         console.error("Login error:", error);
         renderLoginScreen('Geçersiz kullanıcı adı veya şifre.');
@@ -533,27 +535,18 @@ async function handleRegister() {
     }
 }
 
-async function handleTeacherLogin() {
+function handleTeacherLogin() {
     showLoader(true);
     const password = (document.getElementById('teacher-password-input') as HTMLInputElement).value;
-    try {
-        if (password === TEACHER_PASSWORD) {
-            // Log out any potential Firebase user to ensure a clean state
-            await fb.logoutUser();
-            
-            sessionStorage.setItem(TEACHER_SESSION_KEY, 'true');
-            // Now that the state is clean, directly render the dashboard
-            await renderTeacherDashboard();
-            // The loader is hidden inside renderTeacherDashboard
-        } else {
-            const errorDiv = document.getElementById('teacher-login-error')!;
-            errorDiv.textContent = 'Geçersiz yönetici şifresi.';
-            errorDiv.classList.remove('hidden');
-            showLoader(false);
-        }
-    } catch (error) {
-        console.error("Teacher login error:", error);
-        renderLoginScreen('Öğretmen girişi sırasında bir hata oluştu.');
+    const errorDiv = document.getElementById('teacher-login-error')!;
+    errorDiv.classList.add('hidden');
+
+    if (password === TEACHER_PASSWORD) {
+        sessionStorage.setItem(TEACHER_SESSION_KEY, 'true');
+        location.reload();
+    } else {
+        errorDiv.textContent = 'Geçersiz yönetici şifresi.';
+        errorDiv.classList.remove('hidden');
         showLoader(false);
     }
 }
@@ -563,12 +556,11 @@ async function handleLogout() {
     const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
     if (isTeacher) {
         sessionStorage.removeItem(TEACHER_SESSION_KEY);
-        renderLoginScreen();
-        showLoader(false);
+        location.reload();
     } else {
         await fb.logoutUser();
-        // onAuthStateChanged will fire with user=null, and handleAuthenticationState
-        // will be called automatically to show the login screen. The loader will be hidden there.
+        // onAuthStateChanged will fire with user=null, and handleStudentAuthState
+        // will be called automatically to show the login screen and hide the loader.
     }
 }
 
@@ -633,36 +625,38 @@ async function handleViewSummary(studentId: string, studentName: string) {
 
 // --- Central Authentication & State Logic ---
 
-async function handleAuthenticationState(user: any) {
-    const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
-
-    if (isTeacher) {
-        currentStudentName = 'Öğretmen Hesabı';
-        studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">${currentStudentName}</span>`;
-        studentInfo.classList.remove('hidden');
-        await renderTeacherDashboard(activeTeacherTab);
-    } else if (user) {
-        const userData = await fb.getUserData(user.uid);
-        if (userData && userData.status === 'approved') {
-            currentUserId = user.uid;
-            currentStudentName = userData.username;
-            studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
-            studentInfo.classList.remove('hidden');
-            await renderStudentDashboard();
+async function handleStudentAuthState(user: any) {
+    showLoader(true);
+    try {
+        if (user) {
+            const userData = await fb.getUserData(user.uid);
+            if (userData && userData.status === 'approved') {
+                currentUserId = user.uid;
+                currentStudentName = userData.username;
+                studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
+                studentInfo.classList.remove('hidden');
+                await renderStudentDashboard();
+            } else {
+                await fb.logoutUser(); 
+                const message = userData?.status === 'pending'
+                    ? 'Hesabınız öğretmen onayını bekliyor.'
+                    : 'Hesabınız reddedildi veya geçersiz.';
+                renderLoginScreen(message);
+            }
         } else {
-            // This case handles pending or rejected users after a login attempt or page refresh
-            await fb.logoutUser(); 
-            const message = userData?.status === 'pending'
-                ? 'Hesabınız öğretmen onayını bekliyor.'
-                : 'Hesabınız reddedildi veya geçersiz.';
-            renderLoginScreen(message);
-            showLoader(false); // Explicitly hide loader here as we are not entering a new dashboard
+            currentUserId = '';
+            currentStudentName = '';
+            renderLoginScreen();
         }
-    } else {
-        currentUserId = '';
-        currentStudentName = '';
-        renderLoginScreen();
-        showLoader(false); // Explicitly hide loader here
+    } catch (error: any) {
+        console.error("Auth state error:", error);
+        let message = "Giriş sırasında bir hata oluştu. Lütfen tekrar deneyin.";
+        if (error.code && error.code.includes('permission-denied')) {
+            message = "Veritabanı okuma izni hatası. Lütfen Firebase Firestore kurallarınızı kontrol edin.";
+        }
+        renderLoginScreen(message);
+    } finally {
+        showLoader(false);
     }
 }
 
@@ -679,8 +673,17 @@ function initializeApp() {
     // 2. Setup the single global event listener.
     document.body.addEventListener('click', handleGlobalClick);
 
-    // 3. Start the authentication flow.
-    fb.onAuthStateChanged(handleAuthenticationState);
+    // 3. Prioritize Teacher Session: If a teacher session exists, load their dashboard and stop.
+    if (sessionStorage.getItem(TEACHER_SESSION_KEY)) {
+        currentStudentName = 'Öğretmen Hesabı';
+        studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">${currentStudentName}</span>`;
+        studentInfo.classList.remove('hidden');
+        renderTeacherDashboard(activeTeacherTab);
+        return; // Halt further execution to prevent student auth flow
+    }
+
+    // 4. If not a teacher, start the student authentication flow.
+    fb.onAuthStateChanged(handleStudentAuthState);
 }
 
 document.addEventListener('DOMContentLoaded', initializeApp);
