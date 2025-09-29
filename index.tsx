@@ -1,5 +1,6 @@
 // --- Gemini AI Client and Type Imports ---
 import { GoogleGenAI, Type } from "@google/genai";
+import * as fb from './firebase.js';
 
 // --- Type Definitions ---
 interface Scenario {
@@ -11,9 +12,8 @@ interface Scenario {
 }
 
 interface Resource {
-    id: string;
+    id:string;
     url: string;
-    // FIX: Add missing 'title' property to fix error on line 756.
     title: string;
     type: 'article' | 'video' | 'pdf';
     associatedScenarioIds: string[];
@@ -25,15 +25,15 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
 // --- Global State & Constants ---
 let currentStudentName: string = '';
-let currentUserId: string = ''; // Will now store username
+let currentUserId: string = ''; // Will now store Firebase UID
 let reviewingStudentId: string = '';
+let reviewingStudentName: string = '';
 let currentScreen: keyof typeof screens | null = null;
 let activeTeacherTab: string = 'requests'; // Default to requests for teacher workflow
 let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
 
 const TEACHER_PASSWORD = 'teacher3243';
-const USERS_KEY = 'cbt_sim_users_v2'; // v2 includes approval status
-const SESSION_KEY = 'cbt_sim_session_v1';
+const TEACHER_SESSION_KEY = 'cbt_sim_teacher_session_v1';
 
 
 // --- DOM Element References ---
@@ -67,7 +67,8 @@ const loginButton = document.getElementById('login-button')! as HTMLButtonElemen
 const registerUsernameInput = document.getElementById('register-username-input') as HTMLInputElement;
 const registerPasswordInput = document.getElementById('register-password-input') as HTMLInputElement;
 const registerConfirmPasswordInput = document.getElementById('register-confirm-password-input') as HTMLInputElement;
-const registerButton = document.getElementById('register-button')!;
+// FIX: Cast to HTMLButtonElement to fix 'disabled' property error.
+const registerButton = document.getElementById('register-button')! as HTMLButtonElement;
 const teacherPasswordInput = document.getElementById('teacher-password-input') as HTMLInputElement;
 const teacherLoginButton = document.getElementById('teacher-login-button')! as HTMLButtonElement;
 const loginError = document.getElementById('login-error')!;
@@ -196,7 +197,7 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 1.  **overallSummary:** Seansın genel bir değerlendirmesi ve ana teması hakkında kısa bir özet.
 2.  **strengths:** Terapistin seans boyunca sergilediği güçlü yönler (örn: etkili empati kullanımı, doğru yeniden yapılandırma tekniği, güçlü terapötik ittifak). Maddeler halinde listele.
 3.  **areasForImprovement:** Terapistin geliştirebileceği alanlar (örn: daha açık uçlu sorular sorma, Sokratik sorgulamayı derinleştirme, danışanın otomatik düşüncelerini daha net belirleme). Maddeler halinde listele.
-4.  **keyMomentsAnalysis:** Transkriptteki 2-3 kritik anı belirle. Bu anlarda terapistin müdahalesini, bu müdahalesinin potansiyel etkilerini ve alternatif yaklaşımları analiz et.`;
+4.  **keyMomentsAnalysis:** Transkriptteki 2-3 kritik anı belirle. Bu anlarda terapistin müdahalesini, bu müdahalesinin potentsiyel etkilerini ve alternatif yaklaşımları analiz et.`;
 
 const studentSummarySystemInstruction = `Sen, BDT alanında uzman bir eğitim süpervizörüsün. Sana bir öğrencinin birden fazla simülasyon seansındaki konuşma kayıtları verilecek. Görevin, bu kayıtlara dayanarak öğrencinin genel performansı hakkında kapsamlı bir özet ve yapıcı geri bildirim oluşturmaktır.
 
@@ -226,16 +227,16 @@ function getInitialState() {
     };
 }
 
-function saveState(studentId: string, state: object) {
+async function saveState(studentId: string, state: object) {
     if (!studentId) return;
-    localStorage.setItem(`cbt_sim_state_v4_${studentId}`, JSON.stringify(state));
+    await fb.saveState(studentId, state);
 }
 
-function loadState(studentId: string): ReturnType<typeof getInitialState> {
-    const savedState = localStorage.getItem(`cbt_sim_state_v4_${studentId}`);
+async function loadState(studentId: string): Promise<ReturnType<typeof getInitialState>> {
+    const savedState = await fb.loadState(studentId);
     const initialState = getInitialState();
     if (savedState) {
-        const parsedState = JSON.parse(savedState);
+        const parsedState = savedState as any;
         return {
             ...initialState,
             ...parsedState,
@@ -294,8 +295,8 @@ const ALL_ACHIEVEMENTS = [
     { id: 'analyst', name: 'Analist', description: 'İlk harici seansını analiz ettin.', icon: 'science', criteria: (state: ReturnType<typeof getInitialState>) => state.uploadedSessions.length >= 1 },
 ];
 
-function checkAndAwardAchievements(studentId: string) {
-    const state = loadState(studentId);
+async function checkAndAwardAchievements(studentId: string) {
+    const state = await loadState(studentId);
     let newAchievements = false;
     ALL_ACHIEVEMENTS.forEach(ach => {
         if (!state.achievements.includes(ach.id) && ach.criteria(state)) {
@@ -305,7 +306,7 @@ function checkAndAwardAchievements(studentId: string) {
         }
     });
     if (newAchievements) {
-        saveState(studentId, state);
+        await saveState(studentId, state);
     }
 }
 
@@ -500,7 +501,7 @@ async function getAiResponse() {
         simulation.optionsContainer.innerHTML = `<p class="text-red-500 text-center col-span-1 md:col-span-2">Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.</p>`;
         return;
     }
-    const state = loadState(currentUserId);
+    const state = await loadState(currentUserId);
     const scenario = getAllScenarios().find(s => s.id === state.simulation.currentScenarioId);
     
     showLoader(simulation.optionsContainer, "Elif düşünüyor...");
@@ -531,7 +532,7 @@ async function getAiResponse() {
         simulation.feedbackText.textContent = data.feedback;
         updateGraphs(simulation.feedbackSection, data.scoring, data.clientImpact, data.feedback);
 
-        saveState(currentUserId, state);
+        await saveState(currentUserId, state);
     } catch (error) {
         console.error("Error generating AI response:", error);
         const errorString = String(error);
@@ -552,9 +553,9 @@ async function handleOptionSelect(event: Event) {
     const turnId = `turn_${Date.now()}`;
     appendMessage(simulation.chatContainer, 'therapist', therapistMessage, { turnId });
     
-    const state = loadState(currentUserId);
+    const state = await loadState(currentUserId);
     state.simulation.conversationHistory.push({ id: turnId, role: 'therapist', parts: [{ text: therapistMessage }], teacherComment: '' });
-    saveState(currentUserId, state);
+    await saveState(currentUserId, state);
     
     simulation.feedbackSection.classList.add('hidden');
     await getAiResponse();
@@ -565,13 +566,13 @@ async function startSimulation(scenarioId: string) {
     if (!scenario) return;
 
     // If there's an unfinished simulation, archive it before starting a new one.
-    const oldState = loadState(currentUserId);
+    const oldState = await loadState(currentUserId);
     if (oldState.simulation && oldState.simulation.currentProblem) {
-        archiveCurrentSimulation(currentUserId);
+        await archiveCurrentSimulation(currentUserId);
     }
 
     // Proceed with the new simulation, loading the state again as it has been modified.
-    const state = loadState(currentUserId);
+    const state = await loadState(currentUserId);
     state.simulation.currentProblem = scenario.title;
     state.simulation.currentScenarioId = scenario.id;
     state.simulation.conversationHistory = []; // Start fresh
@@ -588,7 +589,7 @@ async function startSimulation(scenarioId: string) {
 
     const turnId = `turn_${Date.now()}`;
     state.simulation.conversationHistory.push({ id: turnId, role: 'therapist', parts: [{ text: `Merhaba, bugün ${scenario.title} üzerine konuşmak için buradayım. Lütfen danışan olarak başla.` }], teacherComment: '' });
-    saveState(currentUserId, state);
+    await saveState(currentUserId, state);
     await getAiResponse();
 }
 
@@ -622,7 +623,7 @@ function rebuildUiFromState(container: HTMLElement, history: any[], isReview: bo
 
 // --- Login, Register & Logout ---
 
-function handleRegister() {
+async function handleRegister() {
     const username = registerUsernameInput.value.trim();
     const password = registerPasswordInput.value;
     const confirmPassword = registerConfirmPasswordInput.value;
@@ -635,41 +636,59 @@ function handleRegister() {
         registerError.classList.remove('hidden');
         return;
     }
+     if (password.length < 6) {
+        registerError.textContent = 'Şifre en az 6 karakter olmalıdır.';
+        registerError.classList.remove('hidden');
+        return;
+    }
     if (password !== confirmPassword) {
         registerError.textContent = 'Şifreler eşleşmiyor.';
         registerError.classList.remove('hidden');
         return;
     }
 
-    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
-    if (users[username]) {
-        registerError.textContent = 'Bu kullanıcı adı zaten alınmış.';
+    registerButton.disabled = true;
+    registerButton.textContent = 'Kaydediliyor...';
+
+    try {
+        await fb.registerUser(username, password);
+        registerSuccess.textContent = 'Kayıt başarılı! Hesabınız öğretmen onayını bekliyor.';
+        registerSuccess.classList.remove('hidden');
+        registerUsernameInput.value = '';
+        registerPasswordInput.value = '';
+        registerConfirmPasswordInput.value = '';
+
+        setTimeout(() => {
+            registerView.classList.add('hidden');
+            loginView.classList.remove('hidden');
+            registerSuccess.classList.add('hidden');
+        }, 3000);
+
+    } catch (error: any) {
+        if (error.code === 'auth/email-already-in-use') {
+            registerError.textContent = 'Bu kullanıcı adı zaten alınmış.';
+        } else {
+            registerError.textContent = 'Kayıt sırasında bir hata oluştu. Lütfen tekrar deneyin.';
+        }
         registerError.classList.remove('hidden');
-        return;
+        console.error("Registration error:", error);
+    } finally {
+        registerButton.disabled = false;
+        registerButton.textContent = 'Kayıt Ol';
     }
-
-    users[username] = { password: password, status: 'pending' }; // Add with pending status
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-
-    registerSuccess.textContent = 'Kayıt başarılı! Hesabınız öğretmen onayını bekliyor.';
-    registerSuccess.classList.remove('hidden');
-    registerUsernameInput.value = '';
-    registerPasswordInput.value = '';
-    registerConfirmPasswordInput.value = '';
-
-    setTimeout(() => {
-        registerView.classList.add('hidden');
-        loginView.classList.remove('hidden');
-        registerSuccess.classList.add('hidden');
-    }, 3000);
 }
 
 function logout() {
-    sessionStorage.removeItem(SESSION_KEY);
-    location.reload();
+    const teacherSession = sessionStorage.getItem(TEACHER_SESSION_KEY);
+    if (teacherSession) {
+        sessionStorage.removeItem(TEACHER_SESSION_KEY);
+        location.reload();
+    } else {
+        fb.logoutUser();
+    }
 }
 
-function handleLogin() {
+async function handleLogin() {
     const username = usernameInput.value.trim();
     const password = passwordInput.value;
     loginError.classList.add('hidden');
@@ -679,36 +698,45 @@ function handleLogin() {
         loginError.classList.remove('hidden');
         return;
     }
+    
+    loginButton.disabled = true;
+    loginButton.innerHTML = '<span>Giriş Yapılıyor...</span>';
 
-    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
-    const user = users[username];
-
-    if (user && user.password === password) {
-        if (user.status === 'approved') {
-            sessionStorage.setItem(SESSION_KEY, JSON.stringify({ type: 'student', username: username }));
-            location.reload();
-        } else if (user.status === 'pending') {
+    try {
+        const user = await fb.loginUser(username, password);
+        const userData = await fb.getUserData(user.uid);
+        
+        if (userData?.status === 'approved') {
+            // onAuthStateChanged will handle the redirect
+        } else if (userData?.status === 'pending') {
             loginError.textContent = 'Hesabınız öğretmen onayını bekliyor.';
             loginError.classList.remove('hidden');
-        } else if (user.status === 'rejected') {
+            await fb.logoutUser();
+        } else if (userData?.status === 'rejected') {
             loginError.textContent = 'Hesap kaydınız reddedildi.';
             loginError.classList.remove('hidden');
+            await fb.logoutUser();
         } else {
-             loginError.textContent = 'Geçersiz kullanıcı durumu. Lütfen yöneticiyle iletişime geçin.';
-             loginError.classList.remove('hidden');
+            loginError.textContent = 'Geçersiz kullanıcı durumu. Lütfen yöneticiyle iletişime geçin.';
+            loginError.classList.remove('hidden');
+            await fb.logoutUser();
         }
-    } else {
+    } catch (error: any) {
         loginError.textContent = 'Geçersiz kullanıcı adı veya şifre.';
         loginError.classList.remove('hidden');
+        console.error("Login error:", error);
+    } finally {
+        loginButton.disabled = false;
+        loginButton.innerHTML = '<span>Giriş Yap</span>';
     }
 }
 
-function handleTeacherLogin() {
+async function handleTeacherLogin() {
     const password = teacherPasswordInput.value;
     teacherLoginError.classList.add('hidden');
 
     if (password === TEACHER_PASSWORD) {
-        sessionStorage.setItem(SESSION_KEY, JSON.stringify({ type: 'teacher', username: 'Öğretmen' }));
+        sessionStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify({ type: 'teacher', username: 'Öğretmen' }));
         location.reload();
     } else {
         teacherLoginError.textContent = 'Geçersiz yönetici şifresi.';
@@ -741,8 +769,8 @@ function calculateAverageScores(history: any[]) {
     };
 }
 
-function generateAndDisplayRecommendations(studentId: string) {
-    const state = loadState(studentId);
+async function generateAndDisplayRecommendations(studentId: string) {
+    const state = await loadState(studentId);
     const container = recommendations.container;
     const allResources = getResourceLibrary();
     let recommendationsHtml = '';
@@ -776,8 +804,8 @@ function generateAndDisplayRecommendations(studentId: string) {
     container.innerHTML = recommendationsHtml || '<p class="text-center text-gray-500">Henüz size özel bir öneri bulunmuyor.</p>';
 }
 
-function displayAchievements(studentId: string) {
-    const state = loadState(studentId);
+async function displayAchievements(studentId: string) {
+    const state = await loadState(studentId);
     const container = achievements.container;
     container.innerHTML = ALL_ACHIEVEMENTS.map(ach => {
         const earned = state.achievements.includes(ach.id);
@@ -791,9 +819,9 @@ function displayAchievements(studentId: string) {
 }
 
 
-function populateStudentDashboard() {
+async function populateStudentDashboard() {
     if (!currentUserId) return;
-    const state = loadState(currentUserId);
+    const state = await loadState(currentUserId);
     dashboardStudentName.textContent = currentStudentName;
 
     // Continue session card
@@ -845,8 +873,8 @@ function populateStudentDashboard() {
     }
     
     // Recommendations & Achievements
-    generateAndDisplayRecommendations(currentUserId);
-    displayAchievements(currentUserId);
+    await generateAndDisplayRecommendations(currentUserId);
+    await displayAchievements(currentUserId);
 
     // QA History
     teacherQASystem.history.innerHTML = '';
@@ -862,22 +890,22 @@ function populateStudentDashboard() {
 
 // --- Teacher Dashboard ---
 
-async function handleViewSummary(studentId: string) {
+async function handleViewSummary(studentId: string, studentName: string) {
     // @ts-ignore
     if (!process.env.API_KEY) {
-        showModal('summary', studentId, '<p class="text-red-500">Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.</p>');
+        showModal('summary', studentName, '<p class="text-red-500">Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.</p>');
         return;
     }
 
-    const state = loadState(studentId);
+    const state = await loadState(studentId);
     if (state.completedSimulations.length === 0) {
         showNotification("Bu öğrencinin henüz tamamlanmış bir simülasyonu yok.", 3000, 'error');
         return;
     }
     
-    showModal('summary', studentId, '<div id="summary-loader-content"></div>');
+    showModal('summary', studentName, '<div id="summary-loader-content"></div>');
     const loaderContainer = document.getElementById('summary-loader-content')!;
-    showLoader(loaderContainer, `${studentId} için özet oluşturuluyor...`);
+    showLoader(loaderContainer, `${studentName} için özet oluşturuluyor...`);
 
     const combinedHistory = state.completedSimulations.map(sim => {
         const transcript = sim.history.map((turn: any) => {
@@ -923,7 +951,7 @@ async function handleViewSummary(studentId: string) {
             <h4 class="mt-4">Eyleme Geçirilebilir Öneriler</h4>
             <ul>${data.actionableSuggestions.map((s: string) => `<li>${s}</li>`).join('')}</ul>
         `;
-        showModal('summary', studentId, summaryContent);
+        showModal('summary', studentName, summaryContent);
 
     } catch(error) {
         console.error("Error generating student summary:", error);
@@ -932,25 +960,26 @@ async function handleViewSummary(studentId: string) {
         if (errorString.includes("API_KEY_INVALID") || errorString.includes("API key not valid")) {
              errorMessage = "Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.";
         }
-        showModal('summary', studentId, `<p class="text-red-500">${errorMessage}</p>`);
+        showModal('summary', studentName, `<p class="text-red-500">${errorMessage}</p>`);
     }
 }
 
 
-function handleApprovalAction(event: Event) {
+async function handleApprovalAction(event: Event) {
     const target = event.target as HTMLElement;
     const button = target.closest('.approve-button, .reject-button') as HTMLButtonElement | null;
     if (!button) return;
 
-    const studentId = button.dataset.studentId!;
+    const userId = button.dataset.userId!;
     const action = button.dataset.action!;
 
-    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
-    if (users[studentId]) {
-        users[studentId].status = action === 'approve' ? 'approved' : 'rejected';
-        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    try {
+        await fb.updateUserStatus(userId, action === 'approve' ? 'approved' : 'rejected');
         showNotification(`Öğrenci ${action === 'approve' ? 'onaylandı' : 'reddedildi'}.`, 3000, 'success');
-        populateTeacherDashboard(); // Refresh the list
+        await populateTeacherDashboard(); // Refresh the list
+    } catch (error) {
+        showNotification('İşlem sırasında bir hata oluştu.', 3000, 'error');
+        console.error("Error updating user status:", error);
     }
 }
 
@@ -968,23 +997,19 @@ function setActiveTeacherTab(tabName: string) {
     }
 }
 
-function populateTeacherDashboard() {
-    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
-    const allStudents = Object.entries(users);
-    const approvedStudents = allStudents.filter(([, user]: [string, any]) => user.status === 'approved');
-
+async function populateTeacherDashboard() {
     // Tab 1: Requests
-    const pendingStudents = allStudents.filter(([, user]: [string, any]) => user.status === 'pending');
+    const pendingStudents = await fb.getPendingUsers();
     let requestsHtml = '<div class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4">';
     if (pendingStudents.length === 0) {
         requestsHtml += '<p class="text-center text-gray-500 py-4">Onay bekleyen öğrenci bulunmuyor.</p>';
     } else {
-         requestsHtml += pendingStudents.map(([username]) => `
+         requestsHtml += pendingStudents.map((user) => `
             <div class="flex justify-between items-center p-4 bg-indigo-50 rounded-lg">
-                <span class="font-semibold text-gray-800">${username}</span>
+                <span class="font-semibold text-gray-800">${user.username}</span>
                 <div class="flex gap-2">
-                    <button data-student-id="${username}" data-action="approve" class="approve-button bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 transition-colors text-sm font-semibold">Onayla</button>
-                    <button data-student-id="${username}" data-action="reject" class="reject-button bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 transition-colors text-sm font-semibold">Reddet</button>
+                    <button data-user-id="${user.id}" data-action="approve" class="approve-button bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 transition-colors text-sm font-semibold">Onayla</button>
+                    <button data-user-id="${user.id}" data-action="reject" class="reject-button bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 transition-colors text-sm font-semibold">Reddet</button>
                 </div>
             </div>
         `).join('');
@@ -993,20 +1018,21 @@ function populateTeacherDashboard() {
     teacherDashboard.contents.requests.innerHTML = requestsHtml;
 
     // Tab 2: Simulations
+    const approvedStudents = await fb.getApprovedStudents();
     let simulationsHtml = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
     if (approvedStudents.length === 0) {
         simulationsHtml = '<p class="text-center text-gray-500 py-8 col-span-full">Henüz onaylanmış öğrenci bulunmuyor.</p>';
     } else {
-        for (const [username] of approvedStudents) {
-            const studentState = loadState(username as string);
+        for (const student of approvedStudents) {
+            const studentState = await loadState(student.id as string);
             const completedCount = studentState.completedSimulations.length;
             simulationsHtml += `
                  <div class="bg-white/80 p-5 rounded-xl shadow-lg">
-                    <h4 class="font-bold text-lg text-gray-800">${username}</h4>
+                    <h4 class="font-bold text-lg text-gray-800">${student.username}</h4>
                     <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
                     <div class="mt-4 flex gap-2">
-                        <button data-student-id="${username}" class="view-sessions-button flex-1 bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors text-sm font-semibold">Seansları Görüntüle</button>
-                        <button data-student-id="${username}" class="view-summary-button bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 transition-colors text-sm font-semibold">AI Özet</button>
+                        <button data-student-id="${student.id}" data-student-name="${student.username}" class="view-sessions-button flex-1 bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors text-sm font-semibold">Seansları Görüntüle</button>
+                        <button data-student-id="${student.id}" data-student-name="${student.username}" class="view-summary-button bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 transition-colors text-sm font-semibold">AI Özet</button>
                     </div>
                 </div>`;
         }
@@ -1016,10 +1042,10 @@ function populateTeacherDashboard() {
 
     // Tab 3: Uploads
     let allUploads: any[] = [];
-    approvedStudents.forEach(([username]) => {
-        const state = loadState(username as string);
+    for (const student of approvedStudents) {
+        const state = await loadState(student.id as string);
         allUploads.push(...state.uploadedSessions);
-    });
+    }
     const uploadsContainer = document.getElementById('uploads-list-container')!;
     if (allUploads.length === 0) {
         uploadsContainer.innerHTML = '<p class="text-center text-gray-500 py-4">Öğrenciler tarafından yüklenmiş seans bulunmuyor.</p>';
@@ -1036,10 +1062,10 @@ function populateTeacherDashboard() {
 
     // Tab 4: Questions
     let allQuestions: any[] = [];
-    approvedStudents.forEach(([username]) => {
-        const state = loadState(username as string);
+    for (const student of approvedStudents) {
+        const state = await loadState(student.id as string);
         allQuestions.push(...state.teacherComms.questions);
-    });
+    }
     const questionsContainer = document.getElementById('questions-list-container')!;
      if (allQuestions.length === 0) {
         questionsContainer.innerHTML = '<p class="text-center text-gray-500 py-4">Henüz öğrenci sorusu bulunmuyor.</p>';
@@ -1055,10 +1081,11 @@ function populateTeacherDashboard() {
 
 
 // --- Teacher Review Logic ---
-function displayStudentSessionsForReview(studentId: string) {
+async function displayStudentSessionsForReview(studentId: string, studentName: string) {
     reviewingStudentId = studentId;
-    const state = loadState(studentId);
-    teacherReview.listStudentName.textContent = studentId;
+    reviewingStudentName = studentName;
+    const state = await loadState(studentId);
+    teacherReview.listStudentName.textContent = studentName;
 
     if (state.completedSimulations.length === 0) {
         teacherReview.sessionListContainer.innerHTML = '<p class="text-center text-gray-500 py-4">Bu öğrencinin tamamlanmış simülasyonu yok.</p>';
@@ -1080,12 +1107,12 @@ function displayStudentSessionsForReview(studentId: string) {
 }
 
 
-function reviewSpecificSession(sessionIndex: number) {
-    const state = loadState(reviewingStudentId);
+async function reviewSpecificSession(sessionIndex: number) {
+    const state = await loadState(reviewingStudentId);
     const session = state.completedSimulations[sessionIndex];
     if (!session) return;
     
-    teacherReview.studentName.textContent = reviewingStudentId;
+    teacherReview.studentName.textContent = reviewingStudentName;
     teacherReview.problemDisplay.textContent = session.title;
     
     const lastModelResponse = rebuildUiFromState(teacherReview.chatContainer, session.history, true);
@@ -1167,8 +1194,8 @@ async function handleAnalyzeTranscript() {
 
 
 // --- Other Functions ---
-function archiveCurrentSimulation(studentId: string) {
-    const state = loadState(studentId);
+async function archiveCurrentSimulation(studentId: string) {
+    const state = await loadState(studentId);
     if (!state.simulation.currentProblem) return;
 
     const finalScores = calculateAverageScores(state.simulation.conversationHistory);
@@ -1185,8 +1212,8 @@ function archiveCurrentSimulation(studentId: string) {
     state.simulation.currentScenarioId = '';
     state.simulation.conversationHistory = [];
 
-    saveState(studentId, state);
-    checkAndAwardAchievements(studentId);
+    await saveState(studentId, state);
+    await checkAndAwardAchievements(studentId);
 }
 
 
@@ -1229,9 +1256,9 @@ function setupEventListeners() {
     problemSelectionContainer.addEventListener('click', handleProblemSelect);
     simulation.optionsContainer.addEventListener('click', handleOptionSelect);
 
-    saveProgressButton.addEventListener('click', () => {
-        archiveCurrentSimulation(currentUserId);
-        populateStudentDashboard();
+    saveProgressButton.addEventListener('click', async () => {
+        await archiveCurrentSimulation(currentUserId);
+        await populateStudentDashboard();
         showScreen('studentDashboard');
         showNotification('İlerlemeniz başarıyla kaydedildi!', 3000);
     });
@@ -1240,9 +1267,9 @@ function setupEventListeners() {
     goToAnalysisButton.addEventListener('click', () => showScreen('sessionAnalysis'));
     analysis.backButton.addEventListener('click', () => showScreen('studentDashboard'));
     analysis.analyzeButton.addEventListener('click', handleAnalyzeTranscript);
-    analysis.sendButton.addEventListener('click', () => {
+    analysis.sendButton.addEventListener('click', async () => {
         if(currentAnalysisCache) {
-            const state = loadState(currentUserId);
+            const state = await loadState(currentUserId);
             state.uploadedSessions.push({
                 id: `upload_${Date.now()}`,
                 studentId: currentUserId,
@@ -1250,18 +1277,18 @@ function setupEventListeners() {
                 teacherFeedback: '',
                 timestamp: new Date().toISOString()
             });
-            saveState(currentUserId, state);
+            await saveState(currentUserId, state);
             showNotification("Analiz başarıyla öğretmene gönderildi!", 3000);
             showScreen('studentDashboard');
             currentAnalysisCache = null; // Clear cache
         }
     });
 
-    teacherQASystem.button.addEventListener('click', () => {
+    teacherQASystem.button.addEventListener('click', async () => {
         const questionText = teacherQASystem.input.value.trim();
         if(!questionText) return;
 
-        const state = loadState(currentUserId);
+        const state = await loadState(currentUserId);
         const newQuestion = {
             id: `q_${Date.now()}`,
             studentId: currentUserId,
@@ -1269,7 +1296,7 @@ function setupEventListeners() {
             timestamp: new Date().toISOString()
         };
         state.teacherComms.questions.push(newQuestion);
-        saveState(currentUserId, state);
+        await saveState(currentUserId, state);
         
         appendMessage(teacherQASystem.history, 'student_question', questionText);
         teacherQASystem.input.value = '';
@@ -1286,16 +1313,18 @@ function setupEventListeners() {
     teacherDashboard.contents.requests.addEventListener('click', handleApprovalAction);
     teacherDashboard.contents.simulations.addEventListener('click', (event) => {
         const target = event.target as HTMLElement;
-        const summaryButton = target.closest('.view-summary-button');
-        const sessionsButton = target.closest('.view-sessions-button');
+        const summaryButton = target.closest('.view-summary-button') as HTMLElement;
+        const sessionsButton = target.closest('.view-sessions-button') as HTMLElement;
 
         if (summaryButton) {
-            const studentId = (summaryButton as HTMLElement).dataset.studentId;
-            if (studentId) handleViewSummary(studentId);
+            const studentId = summaryButton.dataset.studentId;
+            const studentName = summaryButton.dataset.studentName;
+            if (studentId && studentName) handleViewSummary(studentId, studentName);
         }
         if (sessionsButton) {
-            const studentId = (sessionsButton as HTMLElement).dataset.studentId;
-            if (studentId) displayStudentSessionsForReview(studentId);
+            const studentId = sessionsButton.dataset.studentId;
+            const studentName = sessionsButton.dataset.studentName;
+            if (studentId && studentName) displayStudentSessionsForReview(studentId, studentName);
         }
     });
 
@@ -1309,7 +1338,7 @@ function setupEventListeners() {
     });
     
     teacherReview.backToDashboardButton.addEventListener('click', () => showScreen('teacherDashboard'));
-    teacherReview.backToSessionListButton.addEventListener('click', () => displayStudentSessionsForReview(reviewingStudentId));
+    teacherReview.backToSessionListButton.addEventListener('click', () => displayStudentSessionsForReview(reviewingStudentId, reviewingStudentName));
 
     rationaleModal.closeButton.addEventListener('click', () => hideModal('rationale'));
     summaryModal.closeButton.addEventListener('click', () => hideModal('summary'));
@@ -1324,37 +1353,9 @@ function setupEventListeners() {
 }
 
 // --- App Initialization ---
-document.addEventListener('DOMContentLoaded', () => {
+async function initializeApp() {
     setupEventListeners();
     
-    const session = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
-
-    if (session) {
-        currentUserId = session.username;
-        currentStudentName = session.username;
-
-        studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
-        studentInfo.classList.remove('hidden');
-        logoutButton.classList.remove('hidden');
-        
-        if(session.type === 'teacher') {
-            populateTeacherDashboard();
-            setActiveTeacherTab('requests'); // Default to requests
-            showScreen('teacherDashboard');
-        } else { // student
-            populateStudentDashboard();
-            showScreen('studentDashboard');
-        }
-    } else {
-        // No active session
-        showScreen('login');
-        studentInfo.classList.add('hidden');
-        logoutButton.classList.add('hidden');
-        backToSelectionButton.classList.add('hidden');
-        saveProgressButton.classList.add('hidden');
-    }
-
-
     // Initial population of scenarios
     const defaultContainer = document.getElementById('default-scenarios-container')!;
     defaultContainer.innerHTML = defaultScenarios.map(s => `
@@ -1363,4 +1364,49 @@ document.addEventListener('DOMContentLoaded', () => {
             <p class="text-sm text-gray-600 group-hover:text-indigo-200 mt-1">${s.description}</p>
         </button>
     `).join('');
-});
+
+    // Check for teacher session first (still using simple password)
+    const teacherSession = JSON.parse(sessionStorage.getItem(TEACHER_SESSION_KEY) || 'null');
+    if (teacherSession && teacherSession.type === 'teacher') {
+        currentStudentName = 'Öğretmen';
+        studentInfo.innerHTML = `<span class="material-symbols-outlined">school</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
+        studentInfo.classList.remove('hidden');
+        logoutButton.classList.remove('hidden');
+        await populateTeacherDashboard();
+        setActiveTeacherTab('requests');
+        showScreen('teacherDashboard');
+        return; // Stop further execution if teacher is logged in
+    }
+
+    fb.onAuthStateChanged(async (user) => {
+        if (user) {
+            const userData = await fb.getUserData(user.uid);
+            if (userData && userData.status === 'approved') {
+                currentUserId = user.uid;
+                currentStudentName = userData.username;
+                studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
+                studentInfo.classList.remove('hidden');
+                logoutButton.classList.remove('hidden');
+                await populateStudentDashboard();
+                showScreen('studentDashboard');
+            } else {
+                 // User is not approved, or data is missing. Sign them out.
+                 await fb.logoutUser();
+                 // The onAuthStateChanged will trigger again with user=null
+            }
+        } else {
+            // No user is signed in.
+            currentUserId = '';
+            currentStudentName = '';
+            showScreen('login');
+            loginError.textContent = '';
+            loginError.classList.add('hidden');
+            studentInfo.classList.add('hidden');
+            logoutButton.classList.add('hidden');
+            backToSelectionButton.classList.add('hidden');
+            saveProgressButton.classList.add('hidden');
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', initializeApp);
