@@ -66,7 +66,7 @@ const analysisSystemInstruction = `Sen, Bilişsel Davranışçı Terapi (BDT) al
 
 Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı ve başka hiçbir metin, açıklama veya kod bloğu içermemelidir. Analizini aşağıdaki başlıklara göre yapılandır:
 1.  **overallSummary:** Seansın genel bir değerlendirmesi ve ana teması hakkında kısa bir özet.
-2.  **strengths:** Terapistin seans boyunca sergilediği güçlü yönler (örn: etkili empati kullanımı, doğru yeniden yapılandırma tekniği, güçlü terapötik ittifak). Maddeler halinde listele.
+2.  **strengths:** Terapistin seans boyunca sergilediği güçlü yönler (örn: etkili empati kullanımı, doğru yeniden yapılandırma tekniği, güçlü terapötik ittikak). Maddeler halinde listele.
 3.  **areasForImprovement:** Terapistin geliştirebileceği alanlar (örn: daha açık uçlu sorular sorma, Sokratik sorgulamayı derinleştirme, danışanın otomatik düşüncelerini daha net belirleme). Maddeler halinde listele.
 4.  **keyMomentsAnalysis:** Transkriptteki 2-3 kritik anı belirle. Bu anlarda terapistin müdahalesini, bu müdahalesinin potansiyel etkilerini ve alternatif yaklaşımları analiz et.`;
 const studentSummarySystemInstruction = `Sen, BDT alanında uzman bir eğitim süpervizörüsün. Sana bir öğrencinin birden fazla simülasyon seansındaki konuşma kayıtları verilecek. Görevin, bu kayıtlara dayanarak öğrencinin genel performansı hakkında kapsamlı bir özet ve yapıcı geri bildirim oluşturmaktır.
@@ -225,56 +225,64 @@ function renderLoginScreen(error = '', success = '') {
 }
 
 async function renderStudentDashboard() {
-    const state = await loadState(currentUserId);
-    
-    headerButtons.innerHTML = `<button data-action="logout" class="flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all shadow-sm">
-        <span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>
-    </button>`;
-    
-    mainNav.innerHTML = `
-        <button data-action="render-student-dashboard" class="nav-link active flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold">
-            <span class="material-symbols-outlined">dashboard</span> Panelim
-        </button>
-        <button data-action="render-problem-selection" class="nav-link flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-100">
-            <span class="material-symbols-outlined">play_circle</span> Yeni Simülasyon
-        </button>
-    `;
-    mainNav.classList.remove('hidden');
+    showLoader(true);
+    try {
+        const state = await loadState(currentUserId);
+        
+        headerButtons.innerHTML = `<button data-action="logout" class="flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all shadow-sm">
+            <span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>
+        </button>`;
+        
+        mainNav.innerHTML = `
+            <button data-action="render-student-dashboard" class="nav-link active flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold">
+                <span class="material-symbols-outlined">dashboard</span> Panelim
+            </button>
+            <button data-action="render-problem-selection" class="nav-link flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-100">
+                <span class="material-symbols-outlined">play_circle</span> Yeni Simülasyon
+            </button>
+        `;
+        mainNav.classList.remove('hidden');
 
-    let continueSessionHtml = '';
-    if (state.simulation.currentProblem) {
-        continueSessionHtml = `
-            <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl text-center">
-                <span class="material-symbols-outlined text-5xl text-[var(--primary-color)] mb-3">play_circle</span>
-                <h3 class="text-xl font-bold text-gray-800">Devam Et: ${state.simulation.currentProblem}</h3>
-                <p class="text-gray-600 mt-2 mb-4">Kaldığın yerden simülasyona devam et.</p>
-                <button data-action="resume-simulation" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all">Devam Et</button>
-            </div>`;
+        let continueSessionHtml = '';
+        if (state.simulation.currentProblem) {
+            continueSessionHtml = `
+                <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl text-center">
+                    <span class="material-symbols-outlined text-5xl text-[var(--primary-color)] mb-3">play_circle</span>
+                    <h3 class="text-xl font-bold text-gray-800">Devam Et: ${state.simulation.currentProblem}</h3>
+                    <p class="text-gray-600 mt-2 mb-4">Kaldığın yerden simülasyona devam et.</p>
+                    <button data-action="resume-simulation" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all">Devam Et</button>
+                </div>`;
+        }
+
+        let completedSimulationsHtml = '<p class="text-center text-gray-500">Henüz tamamlanmış bir simülasyonunuz yok.</p>';
+        if (state.completedSimulations.length > 0) {
+            completedSimulationsHtml = state.completedSimulations.map(sim => `
+                <div class="p-4 bg-indigo-50 rounded-lg">
+                    <p class="font-semibold text-gray-800">${sim.title}</p>
+                    <p class="text-sm text-gray-500">Tamamlanma: ${new Date(sim.completionDate).toLocaleString()}</p>
+                </div>
+            `).join('');
+        }
+
+        renderContent(`
+            <div class="w-full max-w-4xl mx-auto space-y-8">
+                <div class="text-center">
+                    <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Hoş Geldin, <span class="text-indigo-600">${currentStudentName}</span>!</h2>
+                    <p class="text-gray-600 text-lg mt-2">Bugün ne yapmak istersin?</p>
+                </div>
+                ${continueSessionHtml}
+                <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl">
+                    <h3 class="text-xl font-bold text-gray-800 text-center mb-4">Tamamlanan Simülasyonlar</h3>
+                    <div class="space-y-4">${completedSimulationsHtml}</div>
+                </div>
+            </div>
+        `);
+    } catch(error) {
+        console.error("Error rendering student dashboard:", error);
+        renderLoginScreen("Öğrenci paneli yüklenirken bir hata oluştu.");
+    } finally {
+        showLoader(false);
     }
-
-    let completedSimulationsHtml = '<p class="text-center text-gray-500">Henüz tamamlanmış bir simülasyonunuz yok.</p>';
-    if (state.completedSimulations.length > 0) {
-        completedSimulationsHtml = state.completedSimulations.map(sim => `
-            <div class="p-4 bg-indigo-50 rounded-lg">
-                <p class="font-semibold text-gray-800">${sim.title}</p>
-                <p class="text-sm text-gray-500">Tamamlanma: ${new Date(sim.completionDate).toLocaleString()}</p>
-            </div>
-        `).join('');
-    }
-
-    renderContent(`
-        <div class="w-full max-w-4xl mx-auto space-y-8">
-            <div class="text-center">
-                <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Hoş Geldin, <span class="text-indigo-600">${currentStudentName}</span>!</h2>
-                <p class="text-gray-600 text-lg mt-2">Bugün ne yapmak istersin?</p>
-            </div>
-            ${continueSessionHtml}
-            <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl">
-                <h3 class="text-xl font-bold text-gray-800 text-center mb-4">Tamamlanan Simülasyonlar</h3>
-                <div class="space-y-4">${completedSimulationsHtml}</div>
-            </div>
-        </div>
-    `);
 }
 
 function renderProblemSelection() {
@@ -306,71 +314,79 @@ function renderProblemSelection() {
 }
 
 async function renderTeacherDashboard(tab = 'requests') {
-    activeTeacherTab = tab;
-    
-    headerButtons.innerHTML = `<button data-action="logout" class="flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all shadow-sm">
-        <span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>
-    </button>`;
-    
-    mainNav.innerHTML = `
-        <button data-action="render-teacher-dashboard" data-tab="requests" class="nav-link nav-link-teacher ${tab === 'requests' ? 'active' : ''} flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-amber-100">
-            <span class="material-symbols-outlined">how_to_reg</span> Kayıt İstekleri
-        </button>
-        <button data-action="render-teacher-dashboard" data-tab="simulations" class="nav-link nav-link-teacher ${tab === 'simulations' ? 'active' : ''} flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-amber-100">
-            <span class="material-symbols-outlined">psychology</span> Öğrenciler
-        </button>
-    `;
-    mainNav.classList.remove('hidden');
+    showLoader(true);
+    try {
+        activeTeacherTab = tab;
+        
+        headerButtons.innerHTML = `<button data-action="logout" class="flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all shadow-sm">
+            <span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>
+        </button>`;
+        
+        mainNav.innerHTML = `
+            <button data-action="render-teacher-dashboard" data-tab="requests" class="nav-link nav-link-teacher ${tab === 'requests' ? 'active' : ''} flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-amber-100">
+                <span class="material-symbols-outlined">how_to_reg</span> Kayıt İstekleri
+            </button>
+            <button data-action="render-teacher-dashboard" data-tab="simulations" class="nav-link nav-link-teacher ${tab === 'simulations' ? 'active' : ''} flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-amber-100">
+                <span class="material-symbols-outlined">psychology</span> Öğrenciler
+            </button>
+        `;
+        mainNav.classList.remove('hidden');
 
-    let tabContentHtml = '';
-    if (tab === 'requests') {
-        const pendingStudents = await fb.getPendingUsers();
-        if (pendingStudents.length === 0) {
-            tabContentHtml = '<p class="text-center text-gray-500 py-4">Onay bekleyen öğrenci bulunmuyor.</p>';
-        } else {
-            tabContentHtml = pendingStudents.map((user) => `
-                <div class="flex justify-between items-center p-4 bg-indigo-50 rounded-lg">
-                    <span class="font-semibold text-gray-800">${user.username}</span>
-                    <div class="flex gap-2">
-                        <button data-action="approve-user" data-user-id="${user.id}" class="bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 text-sm font-semibold">Onayla</button>
-                        <button data-action="reject-user" data-user-id="${user.id}" class="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 text-sm font-semibold">Reddet</button>
-                    </div>
-                </div>
-            `).join('');
-        }
-    } else if (tab === 'simulations') {
-        const approvedStudents = await fb.getApprovedStudents();
-        if (approvedStudents.length === 0) {
-            tabContentHtml = '<p class="text-center text-gray-500 py-8 col-span-full">Henüz onaylanmış öğrenci bulunmuyor.</p>';
-        } else {
-            let studentCardsHtml = '';
-            for (const student of approvedStudents) {
-                const studentState = await loadState(student.id as string);
-                const completedCount = studentState.completedSimulations.length;
-                studentCardsHtml += `
-                     <div class="bg-white/80 p-5 rounded-xl shadow-lg">
-                        <h4 class="font-bold text-lg text-gray-800">${student.username}</h4>
-                        <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
-                        <div class="mt-4 flex gap-2">
-                            <button data-action="view-summary" data-student-id="${student.id}" data-student-name="${student.username}" class="flex-1 bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 text-sm font-semibold">AI Özet</button>
+        let tabContentHtml = '';
+        if (tab === 'requests') {
+            const pendingStudents = await fb.getPendingUsers();
+            if (pendingStudents.length === 0) {
+                tabContentHtml = '<p class="text-center text-gray-500 py-4">Onay bekleyen öğrenci bulunmuyor.</p>';
+            } else {
+                tabContentHtml = pendingStudents.map((user) => `
+                    <div class="flex justify-between items-center p-4 bg-indigo-50 rounded-lg">
+                        <span class="font-semibold text-gray-800">${user.username}</span>
+                        <div class="flex gap-2">
+                            <button data-action="approve-user" data-user-id="${user.id}" class="bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 text-sm font-semibold">Onayla</button>
+                            <button data-action="reject-user" data-user-id="${user.id}" class="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 text-sm font-semibold">Reddet</button>
                         </div>
-                    </div>`;
+                    </div>
+                `).join('');
             }
-            tabContentHtml = `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${studentCardsHtml}</div>`;
+        } else if (tab === 'simulations') {
+            const approvedStudents = await fb.getApprovedStudents();
+            if (approvedStudents.length === 0) {
+                tabContentHtml = '<p class="text-center text-gray-500 py-8 col-span-full">Henüz onaylanmış öğrenci bulunmuyor.</p>';
+            } else {
+                let studentCardsHtml = '';
+                for (const student of approvedStudents) {
+                    const studentState = await loadState(student.id as string);
+                    const completedCount = studentState.completedSimulations.length;
+                    studentCardsHtml += `
+                         <div class="bg-white/80 p-5 rounded-xl shadow-lg">
+                            <h4 class="font-bold text-lg text-gray-800">${student.username}</h4>
+                            <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
+                            <div class="mt-4 flex gap-2">
+                                <button data-action="view-summary" data-student-id="${student.id}" data-student-name="${student.username}" class="flex-1 bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 text-sm font-semibold">AI Özet</button>
+                            </div>
+                        </div>`;
+                }
+                tabContentHtml = `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${studentCardsHtml}</div>`;
+            }
         }
-    }
 
-    renderContent(`
-        <div class="w-full max-w-5xl mx-auto">
-            <div class="text-center mb-6">
-                <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Öğretmen Paneli</h2>
-                <p class="text-gray-600 text-lg mt-2">Öğrenci çalışmalarını ve etkileşimlerini buradan yönetin.</p>
+        renderContent(`
+            <div class="w-full max-w-5xl mx-auto">
+                <div class="text-center mb-6">
+                    <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Öğretmen Paneli</h2>
+                    <p class="text-gray-600 text-lg mt-2">Öğrenci çalışmalarını ve etkileşimlerini buradan yönetin.</p>
+                </div>
+                <div class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4">
+                    ${tabContentHtml}
+                </div>
             </div>
-            <div class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4">
-                ${tabContentHtml}
-            </div>
-        </div>
-    `);
+        `);
+    } catch(error) {
+        console.error("Error rendering teacher dashboard:", error);
+        renderLoginScreen("Öğretmen paneli yüklenirken bir hata oluştu.");
+    } finally {
+        showLoader(false);
+    }
 }
 
 
@@ -384,7 +400,7 @@ async function handleGlobalClick(e: MouseEvent) {
     const action = actionTarget.getAttribute('data-action')!;
     const actionData = (actionTarget as HTMLElement).dataset;
 
-    // Actions that don't need a global loader
+    // UI-only actions, no loader needed
     switch (action) {
         case 'show-register-view':
             document.getElementById('login-view')?.classList.add('hidden');
@@ -406,8 +422,7 @@ async function handleGlobalClick(e: MouseEvent) {
             return;
     }
 
-    // Actions that DO need a loader
-    showLoader(true);
+    // Async actions that manage their own loaders
     switch (action) {
         case 'login':
             await handleLogin();
@@ -425,50 +440,56 @@ async function handleGlobalClick(e: MouseEvent) {
             await renderStudentDashboard();
             break;
         case 'render-problem-selection':
-            renderProblemSelection();
+            renderProblemSelection(); // This is synchronous, no await needed
             break;
         case 'render-teacher-dashboard':
             await renderTeacherDashboard(actionData.tab);
             break;
         case 'approve-user':
+            showLoader(true);
             await fb.updateUserStatus(actionData.userId!, 'approved');
             showNotification('Öğrenci onaylandı.');
             await renderTeacherDashboard('requests');
+            // Loader is hidden by renderTeacherDashboard
             break;
         case 'reject-user':
+            showLoader(true);
             await fb.updateUserStatus(actionData.userId!, 'rejected');
             showNotification('Öğrenci reddedildi.');
             await renderTeacherDashboard('requests');
+            // Loader is hidden by renderTeacherDashboard
             break;
         case 'view-summary':
             await handleViewSummary(actionData.studentId!, actionData.studentName!);
             break;
     }
-    // The loader is hidden by the responsible function (e.g. handleAuthenticationState or the action handler itself on error)
-    // To avoid complexity, we avoid a generic showLoader(false) here.
 }
 
 
 async function handleLogin() {
+    showLoader(true);
     const username = (document.getElementById('username-input') as HTMLInputElement).value.trim();
     const password = (document.getElementById('password-input') as HTMLInputElement).value;
     if (!username || !password) {
         renderLoginScreen('Kullanıcı adı ve şifre boş bırakılamaz.');
+        showLoader(false);
         return;
     }
     try {
+        // Explicitly clear any teacher session to prevent conflicts
+        sessionStorage.removeItem(TEACHER_SESSION_KEY);
         await fb.loginUser(username, password);
-        // On successful login, the onAuthStateChanged listener will trigger handleAuthenticationState
-        // which will manage the loader and render the correct screen.
+        // On successful login, onAuthStateChanged will trigger handleAuthenticationState.
+        // handleAuthenticationState will call a rendering function that manages its own loader.
     } catch (error) {
         console.error("Login error:", error);
-        // On failure, explicitly re-render the login screen with an error and hide the loader.
         renderLoginScreen('Geçersiz kullanıcı adı veya şifre.');
         showLoader(false);
     }
 }
 
 async function handleRegister() {
+    showLoader(true);
     const username = (document.getElementById('register-username-input') as HTMLInputElement).value.trim();
     const password = (document.getElementById('register-password-input') as HTMLInputElement).value;
     const confirmPassword = (document.getElementById('register-confirm-password-input') as HTMLInputElement).value;
@@ -481,9 +502,21 @@ async function handleRegister() {
     
     errorDiv.classList.add('hidden');
 
-    if (!username || !password) return showError('Tüm alanlar zorunludur.');
-    if (password.length < 6) return showError('Şifre en az 6 karakter olmalıdır.');
-    if (password !== confirmPassword) return showError('Şifreler eşleşmiyor.');
+    if (!username || !password) {
+        showError('Tüm alanlar zorunludur.');
+        showLoader(false);
+        return;
+    }
+    if (password.length < 6) {
+        showError('Şifre en az 6 karakter olmalıdır.');
+        showLoader(false);
+        return;
+    }
+    if (password !== confirmPassword) {
+        showError('Şifreler eşleşmiyor.');
+        showLoader(false);
+        return;
+    }
 
     try {
         await fb.registerUser(username, password);
@@ -501,12 +534,17 @@ async function handleRegister() {
 }
 
 async function handleTeacherLogin() {
+    showLoader(true);
     const password = (document.getElementById('teacher-password-input') as HTMLInputElement).value;
     try {
         if (password === TEACHER_PASSWORD) {
+            // Log out any potential Firebase user to ensure a clean state
+            await fb.logoutUser();
+            
             sessionStorage.setItem(TEACHER_SESSION_KEY, 'true');
-            // Manually trigger the state handler to render the teacher UI
-            await handleAuthenticationState(null);
+            // Now that the state is clean, directly render the dashboard
+            await renderTeacherDashboard();
+            // The loader is hidden inside renderTeacherDashboard
         } else {
             const errorDiv = document.getElementById('teacher-login-error')!;
             errorDiv.textContent = 'Geçersiz yönetici şifresi.';
@@ -514,21 +552,23 @@ async function handleTeacherLogin() {
             showLoader(false);
         }
     } catch (error) {
+        console.error("Teacher login error:", error);
         renderLoginScreen('Öğretmen girişi sırasında bir hata oluştu.');
         showLoader(false);
     }
 }
 
 async function handleLogout() {
+    showLoader(true);
     const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
     if (isTeacher) {
         sessionStorage.removeItem(TEACHER_SESSION_KEY);
-        // The page doesn't need a full reload, just run the auth state handler
-        await handleAuthenticationState(null);
+        renderLoginScreen();
+        showLoader(false);
     } else {
         await fb.logoutUser();
         // onAuthStateChanged will fire with user=null, and handleAuthenticationState
-        // will be called automatically to show the login screen.
+        // will be called automatically to show the login screen. The loader will be hidden there.
     }
 }
 
@@ -594,41 +634,35 @@ async function handleViewSummary(studentId: string, studentName: string) {
 // --- Central Authentication & State Logic ---
 
 async function handleAuthenticationState(user: any) {
-    showLoader(true);
-    try {
-        const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
+    const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
 
-        if (isTeacher) {
-            currentStudentName = 'Öğretmen Hesabı';
-            studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">${currentStudentName}</span>`;
+    if (isTeacher) {
+        currentStudentName = 'Öğretmen Hesabı';
+        studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">${currentStudentName}</span>`;
+        studentInfo.classList.remove('hidden');
+        await renderTeacherDashboard(activeTeacherTab);
+    } else if (user) {
+        const userData = await fb.getUserData(user.uid);
+        if (userData && userData.status === 'approved') {
+            currentUserId = user.uid;
+            currentStudentName = userData.username;
+            studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
             studentInfo.classList.remove('hidden');
-            await renderTeacherDashboard(activeTeacherTab);
-        } else if (user) {
-            const userData = await fb.getUserData(user.uid);
-            if (userData && userData.status === 'approved') {
-                currentUserId = user.uid;
-                currentStudentName = userData.username;
-                studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
-                studentInfo.classList.remove('hidden');
-                await renderStudentDashboard();
-            } else {
-                await fb.logoutUser();
-                const message = userData?.status === 'pending'
-                    ? 'Hesabınız öğretmen onayını bekliyor.'
-                    : 'Hesabınız reddedildi veya geçersiz.';
-                renderLoginScreen(message);
-            }
+            await renderStudentDashboard();
         } else {
-            currentUserId = '';
-            currentStudentName = '';
-            renderLoginScreen();
+            // This case handles pending or rejected users after a login attempt or page refresh
+            await fb.logoutUser(); 
+            const message = userData?.status === 'pending'
+                ? 'Hesabınız öğretmen onayını bekliyor.'
+                : 'Hesabınız reddedildi veya geçersiz.';
+            renderLoginScreen(message);
+            showLoader(false); // Explicitly hide loader here as we are not entering a new dashboard
         }
-    } catch (error) {
-        console.error("Critical error during authentication state change:", error);
-        renderLoginScreen("Bir hata oluştu. Lütfen tekrar giriş yapmayı deneyin.");
-    } finally {
-        // This is the crucial fix: ensure the loader is always hidden after attempting to render a state.
-        showLoader(false);
+    } else {
+        currentUserId = '';
+        currentStudentName = '';
+        renderLoginScreen();
+        showLoader(false); // Explicitly hide loader here
     }
 }
 
