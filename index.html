@@ -505,7 +505,35 @@
     </div>
 </div>
 
-
 <div id="notification-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2"></div>
+
+<!-- Configuration Warning Overlay -->
+<div id="config-warning-overlay" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 text-white">
+    <div class="bg-red-900 border-4 border-red-600 rounded-2xl shadow-xl max-w-2xl w-full p-8 text-center ring-4 ring-red-500/50">
+        <span class="material-symbols-outlined text-7xl text-yellow-300">warning</span>
+        <h2 class="text-4xl font-bold mt-4">Yapılandırma Gerekli!</h2>
+        <p class="mt-4 text-lg text-red-100">
+            Uygulamanın çalışabilmesi için Firebase proje bilgilerinizi girmeniz gerekmektedir.
+        </p>
+        <p class="mt-2 text-red-200">
+            Lütfen <strong>firebase.ts</strong> dosyasını açın ve içerisindeki yer tutucu bilgileri kendi Firebase projenizin bilgileri ile değiştirin.
+        </p>
+        <div class="mt-6 p-4 bg-black/50 rounded-lg text-left font-mono text-sm text-yellow-200 overflow-x-auto">
+            <pre class="whitespace-pre-wrap"><code>// firebase.ts
+
+export const firebaseConfig = {
+  apiKey: "YOUR_API_KEY", // &lt;-- BUNU DEĞİŞTİRİN
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com", // &lt;-- BUNU DEĞİŞTİRİN
+  projectId: "YOUR_PROJECT_ID", // &lt;-- BUNU DEĞİŞTİRİN
+  // ...diğerleri
+};</code></pre>
+        </div>
+        <p class="mt-6 text-sm text-red-300">
+            Bu bilgileri Firebase Console &gt; Proje Ayarları &gt; Genel sekmesinden bulabilirsiniz. Değişikliği yaptıktan sonra sayfayı yenileyin.
+        </p>
+    </div>
+</div>
+
+
 <script type="module" src="index.tsx"></script>
 </body></html>
