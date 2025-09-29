@@ -1,3 +1,4 @@
+
 // --- Gemini AI Client and Type Imports ---
 import { GoogleGenAI, Type } from "@google/genai";
 import * as fb from './firebase.js';
@@ -197,7 +198,7 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 1.  **overallSummary:** Seansın genel bir değerlendirmesi ve ana teması hakkında kısa bir özet.
 2.  **strengths:** Terapistin seans boyunca sergilediği güçlü yönler (örn: etkili empati kullanımı, doğru yeniden yapılandırma tekniği, güçlü terapötik ittifak). Maddeler halinde listele.
 3.  **areasForImprovement:** Terapistin geliştirebileceği alanlar (örn: daha açık uçlu sorular sorma, Sokratik sorgulamayı derinleştirme, danışanın otomatik düşüncelerini daha net belirleme). Maddeler halinde listele.
-4.  **keyMomentsAnalysis:** Transkriptteki 2-3 kritik anı belirle. Bu anlarda terapistin müdahalesini, bu müdahalesinin potentsiyel etkilerini ve alternatif yaklaşımları analiz et.`;
+4.  **keyMomentsAnalysis:** Transkriptteki 2-3 kritik anı belirle. Bu anlarda terapistin müdahalesini, bu müdahalesinin potansiyel etkilerini ve alternatif yaklaşımları analiz et.`;
 
 const studentSummarySystemInstruction = `Sen, BDT alanında uzman bir eğitim süpervizörüsün. Sana bir öğrencinin birden fazla simülasyon seansındaki konuşma kayıtları verilecek. Görevin, bu kayıtlara dayanarak öğrencinin genel performansı hakkında kapsamlı bir özet ve yapıcı geri bildirim oluşturmaktır.
 
@@ -1355,7 +1356,7 @@ function setupEventListeners() {
 // --- App Initialization ---
 async function initializeApp() {
     setupEventListeners();
-    
+
     // Initial population of scenarios
     const defaultContainer = document.getElementById('default-scenarios-container')!;
     defaultContainer.innerHTML = defaultScenarios.map(s => `
@@ -1365,21 +1366,21 @@ async function initializeApp() {
         </button>
     `).join('');
 
-    // Check for teacher session first (still using simple password)
-    const teacherSession = JSON.parse(sessionStorage.getItem(TEACHER_SESSION_KEY) || 'null');
-    if (teacherSession && teacherSession.type === 'teacher') {
-        currentStudentName = 'Öğretmen';
-        studentInfo.innerHTML = `<span class="material-symbols-outlined">school</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
-        studentInfo.classList.remove('hidden');
-        logoutButton.classList.remove('hidden');
-        await populateTeacherDashboard();
-        setActiveTeacherTab('requests');
-        showScreen('teacherDashboard');
-        return; // Stop further execution if teacher is logged in
-    }
-
+    // Let the onAuthStateChanged callback be the single source of truth for routing.
     fb.onAuthStateChanged(async (user) => {
-        if (user) {
+        const teacherSession = JSON.parse(sessionStorage.getItem(TEACHER_SESSION_KEY) || 'null');
+
+        if (teacherSession && teacherSession.type === 'teacher') {
+            // Teacher is logged in, show teacher dashboard. This takes precedence.
+            currentStudentName = 'Öğretmen';
+            studentInfo.innerHTML = `<span class="material-symbols-outlined">school</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
+            studentInfo.classList.remove('hidden');
+            logoutButton.classList.remove('hidden');
+            await populateTeacherDashboard();
+            setActiveTeacherTab('requests');
+            showScreen('teacherDashboard');
+        } else if (user) {
+            // A Firebase user is logged in (must be a student).
             const userData = await fb.getUserData(user.uid);
             if (userData && userData.status === 'approved') {
                 currentUserId = user.uid;
@@ -1390,12 +1391,12 @@ async function initializeApp() {
                 await populateStudentDashboard();
                 showScreen('studentDashboard');
             } else {
-                 // User is not approved, or data is missing. Sign them out.
+                 // Student user is not approved or data is missing. Sign them out.
+                 // This will trigger onAuthStateChanged again with user=null.
                  await fb.logoutUser();
-                 // The onAuthStateChanged will trigger again with user=null
             }
         } else {
-            // No user is signed in.
+            // No teacher session and no Firebase user. Show login screen.
             currentUserId = '';
             currentStudentName = '';
             showScreen('login');
