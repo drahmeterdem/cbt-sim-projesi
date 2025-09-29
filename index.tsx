@@ -225,7 +225,6 @@ function renderLoginScreen(error = '', success = '') {
 }
 
 async function renderStudentDashboard() {
-    showLoader(true);
     const state = await loadState(currentUserId);
     
     headerButtons.innerHTML = `<button data-action="logout" class="flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all shadow-sm">
@@ -276,7 +275,6 @@ async function renderStudentDashboard() {
             </div>
         </div>
     `);
-    showLoader(false);
 }
 
 function renderProblemSelection() {
@@ -309,8 +307,7 @@ function renderProblemSelection() {
 
 async function renderTeacherDashboard(tab = 'requests') {
     activeTeacherTab = tab;
-    showLoader(true);
-
+    
     headerButtons.innerHTML = `<button data-action="logout" class="flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all shadow-sm">
         <span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>
     </button>`;
@@ -374,39 +371,44 @@ async function renderTeacherDashboard(tab = 'requests') {
             </div>
         </div>
     `);
-    showLoader(false);
 }
 
 
-// --- Event Delegation & App Initialization ---
+// --- Event Delegation & Action Handlers ---
+
 async function handleGlobalClick(e: MouseEvent) {
     const target = e.target as HTMLElement;
     const actionTarget = target.closest('[data-action]');
-
     if (!actionTarget) return;
 
     const action = actionTarget.getAttribute('data-action')!;
     const actionData = (actionTarget as HTMLElement).dataset;
 
-    showLoader(true); // Show loader for most actions
-
+    // Actions that don't need a global loader
     switch (action) {
-        // --- Auth ---
         case 'show-register-view':
             document.getElementById('login-view')?.classList.add('hidden');
             document.getElementById('teacher-login-view')?.classList.add('hidden');
             document.getElementById('register-view')?.classList.remove('hidden');
-            break;
+            return;
         case 'show-login-view':
              document.getElementById('register-view')?.classList.add('hidden');
              document.getElementById('teacher-login-view')?.classList.add('hidden');
              document.getElementById('login-view')?.classList.remove('hidden');
-            break;
+            return;
         case 'show-teacher-login-view':
              document.getElementById('login-view')?.classList.add('hidden');
              document.getElementById('register-view')?.classList.add('hidden');
              document.getElementById('teacher-login-view')?.classList.remove('hidden');
-            break;
+            return;
+        case 'close-modal':
+            hideModal(actionData.modal as 'rationale' | 'summary');
+            return;
+    }
+
+    // Actions that DO need a loader
+    showLoader(true);
+    switch (action) {
         case 'login':
             await handleLogin();
             break;
@@ -419,8 +421,6 @@ async function handleGlobalClick(e: MouseEvent) {
         case 'logout':
             await handleLogout();
             break;
-
-        // --- Navigation ---
         case 'render-student-dashboard':
             await renderStudentDashboard();
             break;
@@ -430,8 +430,6 @@ async function handleGlobalClick(e: MouseEvent) {
         case 'render-teacher-dashboard':
             await renderTeacherDashboard(actionData.tab);
             break;
-
-        // --- Teacher Actions ---
         case 'approve-user':
             await fb.updateUserStatus(actionData.userId!, 'approved');
             showNotification('Öğrenci onaylandı.');
@@ -445,17 +443,10 @@ async function handleGlobalClick(e: MouseEvent) {
         case 'view-summary':
              // await handleViewSummary(actionData.studentId!, actionData.studentName!);
             break;
-        
-        // --- Modal ---
-        case 'close-modal':
-            hideModal(actionData.modal as 'rationale' | 'summary');
-            break;
     }
-
-    showLoader(false); // Hide loader after action is complete
+    showLoader(false);
 }
 
-// --- Action Handlers ---
 async function handleLogin() {
     const username = (document.getElementById('username-input') as HTMLInputElement).value.trim();
     const password = (document.getElementById('password-input') as HTMLInputElement).value;
@@ -465,17 +456,11 @@ async function handleLogin() {
     }
     try {
         const user = await fb.loginUser(username, password);
-        const userData = await fb.getUserData(user.uid);
-        if (userData?.status !== 'approved') {
-            await fb.logoutUser();
-            const message = userData?.status === 'pending'
-                ? 'Hesabınız öğretmen onayını bekliyor.'
-                : 'Hesabınız reddedildi veya geçersiz.';
-            renderLoginScreen(message);
-        }
-        // onAuthStateChanged will handle the successful login redirect
+        // On successful login, let the central state handler take over
+        await handleAuthenticationState(user);
     } catch (error) {
         console.error("Login error:", error);
+        // On failure, just re-render the login screen with an error
         renderLoginScreen('Geçersiz kullanıcı adı veya şifre.');
     }
 }
@@ -514,7 +499,8 @@ async function handleTeacherLogin() {
     const password = (document.getElementById('teacher-password-input') as HTMLInputElement).value;
     if (password === TEACHER_PASSWORD) {
         sessionStorage.setItem(TEACHER_SESSION_KEY, 'true');
-        location.reload(); // Reload to trigger auth flow
+        // Let the central state handler take over
+        await handleAuthenticationState(null);
     } else {
         const errorDiv = document.getElementById('teacher-login-error')!;
         errorDiv.textContent = 'Geçersiz yönetici şifresi.';
@@ -526,18 +512,57 @@ async function handleLogout() {
     const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
     if (isTeacher) {
         sessionStorage.removeItem(TEACHER_SESSION_KEY);
-        location.reload();
+        // The page doesn't need a full reload, just run the auth state handler
+        await handleAuthenticationState(null);
     } else {
         await fb.logoutUser();
-        // onAuthStateChanged will handle the UI update
+        // onAuthStateChanged will fire with user=null, and handleAuthenticationState
+        // will be called automatically to show the login screen.
     }
+}
+
+
+// --- Central Authentication & State Logic ---
+
+async function handleAuthenticationState(user: any) {
+    showLoader(true);
+    const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
+
+    if (isTeacher) {
+        currentStudentName = 'Öğretmen Hesabı';
+        studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">${currentStudentName}</span>`;
+        studentInfo.classList.remove('hidden');
+        await renderTeacherDashboard(activeTeacherTab);
+    } else if (user) {
+        const userData = await fb.getUserData(user.uid);
+        if (userData && userData.status === 'approved') {
+            currentUserId = user.uid;
+            currentStudentName = userData.username;
+            studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
+            studentInfo.classList.remove('hidden');
+            await renderStudentDashboard();
+        } else {
+             // Handle cases where user is logged in but not approved (pending, rejected)
+            await fb.logoutUser(); // Log them out
+            const message = userData?.status === 'pending'
+                ? 'Hesabınız öğretmen onayını bekliyor.'
+                : 'Hesabınız reddedildi veya geçersiz.';
+            renderLoginScreen(message); // Show login with appropriate error
+        }
+    } else {
+        // Logged out state
+        currentUserId = '';
+        currentStudentName = '';
+        renderLoginScreen();
+    }
+    showLoader(false);
 }
 
 
 // --- App Initialization ---
 function initializeApp() {
     // 1. Check for Firebase config first.
-    if (fb.firebaseConfig.apiKey === "YOUR_API_KEY" || !fb.firebaseConfig.apiKey) {
+    if (fb.firebaseConfig.apiKey === "AIzaSyBMOhPCumWJncjfch4GhdPEnwO03c_8o5E" || !fb.firebaseConfig.apiKey) {
         document.querySelector('.layout-container')!.classList.add('hidden');
         configWarningOverlay.classList.remove('hidden');
         return; // Stop all further execution
@@ -547,35 +572,7 @@ function initializeApp() {
     document.body.addEventListener('click', handleGlobalClick);
 
     // 3. Start the authentication flow.
-    showLoader(true);
-    fb.onAuthStateChanged(async (user) => {
-        const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
-
-        if (isTeacher) {
-            currentStudentName = 'Öğretmen Hesabı';
-            studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">${currentStudentName}</span>`;
-            studentInfo.classList.remove('hidden');
-            await renderTeacherDashboard(activeTeacherTab);
-        } else if (user) {
-            const userData = await fb.getUserData(user.uid);
-            if (userData && userData.status === 'approved') {
-                currentUserId = user.uid;
-                currentStudentName = userData.username;
-                studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
-                studentInfo.classList.remove('hidden');
-                await renderStudentDashboard();
-            } else {
-                // This will trigger another onAuthStateChanged with user=null
-                await fb.logoutUser();
-            }
-        } else {
-            // Logged out state
-            currentUserId = '';
-            currentStudentName = '';
-            renderLoginScreen();
-        }
-        showLoader(false);
-    });
+    fb.onAuthStateChanged(handleAuthenticationState);
 }
 
 document.addEventListener('DOMContentLoaded', initializeApp);
