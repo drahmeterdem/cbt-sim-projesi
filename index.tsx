@@ -562,7 +562,7 @@ async function handleAuthenticationState(user: any) {
 // --- App Initialization ---
 function initializeApp() {
     // 1. Check for Firebase config first.
-    if (fb.firebaseConfig.apiKey === "AIzaSyBMOhPCumWJncjfch4GhdPEnwO03c_8o5E" || !fb.firebaseConfig.apiKey) {
+    if (fb.firebaseConfig.apiKey === "YOUR_API_KEY" || !fb.firebaseConfig.apiKey) {
         document.querySelector('.layout-container')!.classList.add('hidden');
         configWarningOverlay.classList.remove('hidden');
         return; // Stop all further execution
