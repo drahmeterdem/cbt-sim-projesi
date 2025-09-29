@@ -49,7 +49,9 @@ const screens = {
 };
 
 // General UI
+const layoutContainer = document.querySelector('.layout-container') as HTMLElement;
 const mainNav = document.getElementById('main-nav')!;
+const mainContentContainer = document.querySelector('.layout-content-container') as HTMLElement;
 const studentInfo = document.getElementById('student-info')!;
 const logoutButton = document.getElementById('logout-button')!;
 const backToSelectionButton = document.getElementById('back-to-selection-button')!;
@@ -59,27 +61,18 @@ const notificationContainer = document.getElementById('notification-container')!
 const loginView = document.getElementById('login-view')!;
 const registerView = document.getElementById('register-view')!;
 const teacherLoginView = document.getElementById('teacher-login-view')!;
-const showRegisterView = document.getElementById('show-register-view')!;
-const showLoginView = document.getElementById('show-login-view')!;
-const showTeacherLoginView = document.getElementById('show-teacher-login-view')!;
-const showStudentLoginView = document.getElementById('show-student-login-view')!;
 const usernameInput = document.getElementById('username-input') as HTMLInputElement;
 const passwordInput = document.getElementById('password-input') as HTMLInputElement;
 const loginButton = document.getElementById('login-button')! as HTMLButtonElement;
 const registerUsernameInput = document.getElementById('register-username-input') as HTMLInputElement;
 const registerPasswordInput = document.getElementById('register-password-input') as HTMLInputElement;
 const registerConfirmPasswordInput = document.getElementById('register-confirm-password-input') as HTMLInputElement;
-// FIX: Cast to HTMLButtonElement to fix 'disabled' property error.
 const registerButton = document.getElementById('register-button')! as HTMLButtonElement;
 const teacherPasswordInput = document.getElementById('teacher-password-input') as HTMLInputElement;
-const teacherLoginButton = document.getElementById('teacher-login-button')! as HTMLButtonElement;
 const loginError = document.getElementById('login-error')!;
 const registerError = document.getElementById('register-error')!;
 const registerSuccess = document.getElementById('register-success')!;
 const teacherLoginError = document.getElementById('teacher-login-error')!;
-
-// Problem Selection
-const problemSelectionContainer = document.getElementById('problem-selection-container')!;
 
 // Simulation Screen
 const simulation = {
@@ -94,13 +87,10 @@ const saveProgressButton = document.getElementById('save-progress-button')!;
 // Student Dashboard
 const dashboardStudentName = document.getElementById('dashboard-student-name')!;
 const continueSessionCard = document.getElementById('continue-session-card')!;
-const goToAnalysisButton = document.getElementById('go-to-analysis-button')!;
 const progressTracking = {
-    card: document.getElementById('progress-tracking-card')!,
     container: document.getElementById('progress-charts-container')!,
 };
 const cumulativeProgress = {
-    card: document.getElementById('cumulative-progress-card')!,
     container: document.getElementById('cumulative-charts-container')!,
 };
 const achievements = {
@@ -112,7 +102,6 @@ const recommendations = {
 const teacherQASystem = {
     history: document.getElementById('teacher-qa-history')!,
     input: document.getElementById('student-question-input') as HTMLInputElement,
-    button: document.getElementById('ask-teacher-button')!,
 };
 
 // Session Analysis Screen
@@ -121,20 +110,15 @@ const analysis = {
     analyzeButton: document.getElementById('analyze-transcript-button')! as HTMLButtonElement,
     output: document.getElementById('analysis-output')!,
     sendButton: document.getElementById('send-to-teacher-button')!,
-    backButton: document.getElementById('back-to-dashboard-from-analysis')!,
 };
 
 // Teacher Dashboard
 const teacherDashboard = {
-    contentContainer: document.getElementById('teacher-content-container')!,
     contents: {
         simulations: document.getElementById('simulations-content')!,
         requests: document.getElementById('requests-content')!,
         uploads: document.getElementById('uploads-content')!,
         questions: document.getElementById('questions-content')!,
-        analytics: document.getElementById('analytics-content')!,
-        builder: document.getElementById('builder-content')!,
-        library: document.getElementById('library-content')!,
     }
 };
 
@@ -145,30 +129,25 @@ const teacherReview = {
     detailView: document.getElementById('teacher-review-detail-view')!,
     listStudentName: document.getElementById('review-list-student-name')!,
     sessionListContainer: document.getElementById('review-session-list-container')!,
-    backToDashboardButton: document.getElementById('back-to-teacher-dashboard-button')!,
-    backToSessionListButton: document.getElementById('back-to-session-list-button')!,
     studentName: document.getElementById('review-student-name')!,
     problemDisplay: document.getElementById('review-problem-display')!,
     chatContainer: document.getElementById('review-chat-container')!,
     feedbackSection: document.getElementById('review-feedback-section')!,
     feedbackInput: document.getElementById('feedback-input') as HTMLTextAreaElement,
-    submitFeedbackButton: document.getElementById('submit-feedback-button')!,
 };
-
 
 // Modals
 const rationaleModal = {
     container: document.getElementById('rationale-modal')!,
     title: document.getElementById('modal-title')!,
     content: document.getElementById('modal-content')!,
-    closeButton: document.getElementById('close-modal-button')!,
 };
 const summaryModal = {
     container: document.getElementById('ai-summary-modal')!,
     title: document.getElementById('summary-modal-title')!,
     content: document.getElementById('summary-modal-content')!,
-    closeButton: document.getElementById('close-summary-modal-button')!,
 };
+const configWarningOverlay = document.getElementById('config-warning-overlay')!;
 
 
 // --- System Prompts ---
@@ -322,7 +301,7 @@ function showScreen(screenId: keyof typeof screens) {
     // Update active state in nav
     document.querySelectorAll('.nav-link').forEach(link => {
         link.classList.remove('active');
-        if (link.getAttribute('data-screen') === screenId) {
+        if (link.getAttribute('data-screen') === screenId || link.getAttribute('data-tab') === screenId) {
             link.classList.add('active');
         }
     });
@@ -372,8 +351,8 @@ function appendMessage(
       messageElement.className = `flex w-full flex-row items-end gap-3 animate-fade-in-up ${justifyClass}`;
       messageElement.dataset.turnId = options.turnId;
 
-      const commentButton = options.isReview ? `<button data-turn-id="${options.turnId}" class="add-inline-comment-button -mr-2 -mb-2 p-2 rounded-full hover:bg-black/10 transition-colors"><span class="material-symbols-outlined text-lg text-gray-500">add_comment</span></button>` : '';
-      const rationaleButton = !isTherapist && options.rationale ? `<button data-rationale="${options.rationale}" class="rationale-button -mr-2 -mb-2 p-2 rounded-full hover:bg-white/20 transition-colors"><span class="material-symbols-outlined text-lg text-white">lightbulb</span></button>` : '';
+      const commentButton = options.isReview ? `<button data-action="add-inline-comment" data-turn-id="${options.turnId}" class="-mr-2 -mb-2 p-2 rounded-full hover:bg-black/10 transition-colors"><span class="material-symbols-outlined text-lg text-gray-500">add_comment</span></button>` : '';
+      const rationaleButton = !isTherapist && options.rationale ? `<button data-action="show-rationale" data-rationale="${options.rationale}" class="-mr-2 -mb-2 p-2 rounded-full hover:bg-white/20 transition-colors"><span class="material-symbols-outlined text-lg text-white">lightbulb</span></button>` : '';
       
       const content = `
         <div class="flex flex-col items-start chat-bubble ${bubbleClasses}">
@@ -404,7 +383,7 @@ function appendMessage(
             commentInputDiv.className = 'hidden w-full flex gap-2 mt-2';
             commentInputDiv.innerHTML = `
                 <input type="text" placeholder="Yorum ekle..." class="inline-comment-input flex-grow rounded-lg border-gray-300 shadow-sm text-sm">
-                <button data-turn-id="${options.turnId}" class="submit-inline-comment rounded-lg px-3 bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-all">Gönder</button>
+                <button data-action="submit-inline-comment" data-turn-id="${options.turnId}" class="rounded-lg px-3 bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-all">Gönder</button>
             `;
             messageWrapper.appendChild(commentInputDiv);
         }
@@ -422,6 +401,7 @@ function displayOptions(options: { title: string; description: string }[]) {
   options.forEach(option => {
     const button = document.createElement('button');
     button.className = 'option-button group';
+    button.setAttribute('data-action', 'select-sim-option');
     button.innerHTML = `
       <span class="font-semibold block">${option.title}</span>
       <span class="text-sm text-gray-500 group-hover:text-indigo-100">${option.description}</span>
@@ -462,7 +442,7 @@ function updateGraphs(container: HTMLElement, scoring: any, clientImpact: any, f
 
 function showLoader(container: HTMLElement, message: string) {
     container.innerHTML = `
-      <div class="col-span-1 md:col-span-2 flex justify-center items-center py-4 animate-fade-in-up">
+      <div class="flex justify-center items-center py-4 animate-fade-in-up">
         <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] text-[var(--primary-color)] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
           <span class="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Yükleniyor...</span>
         </div>
@@ -588,11 +568,7 @@ async function getAiResponse() {
     }
 }
 
-async function handleOptionSelect(event: Event) {
-    const target = event.target as HTMLElement;
-    const button = target.closest('.option-button') as HTMLButtonElement | null;
-    if (!button) return;
-
+async function handleOptionSelect(button: HTMLButtonElement) {
     const therapistMessage = button.dataset.description || '';
     const turnId = `turn_${Date.now()}`;
     appendMessage(simulation.chatContainer, 'therapist', therapistMessage, { turnId });
@@ -609,13 +585,11 @@ async function startSimulation(scenarioId: string) {
     const scenario = getAllScenarios().find(s => s.id === scenarioId);
     if (!scenario) return;
 
-    // If there's an unfinished simulation, archive it before starting a new one.
     const oldState = await loadState(currentUserId);
     if (oldState.simulation && oldState.simulation.currentProblem) {
         await archiveCurrentSimulation(currentUserId);
     }
 
-    // Proceed with the new simulation, loading the state again as it has been modified.
     const state = await loadState(currentUserId);
     state.simulation.currentProblem = scenario.title;
     state.simulation.currentScenarioId = scenario.id;
@@ -635,14 +609,6 @@ async function startSimulation(scenarioId: string) {
     state.simulation.conversationHistory.push({ id: turnId, role: 'therapist', parts: [{ text: `Merhaba, bugün ${scenario.title} üzerine konuşmak için buradayım. Lütfen danışan olarak başla.` }], teacherComment: '' });
     await saveState(currentUserId, state);
     await getAiResponse();
-}
-
-function handleProblemSelect(event: Event) {
-    const target = event.target as HTMLElement;
-    const button = target.closest('.problem-button') as HTMLButtonElement | null;
-    if (!button) return;
-    const scenarioId = button.dataset.scenarioId;
-    if (scenarioId) startSimulation(scenarioId);
 }
 
 function rebuildUiFromState(container: HTMLElement, history: any[], isReview: boolean = false) {
@@ -819,7 +785,6 @@ async function generateAndDisplayRecommendations(studentId: string) {
     const allResources = getResourceLibrary();
     let recommendationsHtml = '';
 
-    // Recommendation 1: Based on last completed session's associated resources
     const lastCompleted = state.completedSimulations[state.completedSimulations.length - 1];
     if (lastCompleted) {
         const associatedResources = allResources.filter(r => r.associatedScenarioIds.includes(lastCompleted.scenarioId));
@@ -833,7 +798,6 @@ async function generateAndDisplayRecommendations(studentId: string) {
         }
     }
 
-    // Recommendation 2: Based on performance
     const allHistory = state.completedSimulations.flatMap(s => s.history || []);
     const overallScores = calculateAverageScores(allHistory);
     if (allHistory.length > 0 && overallScores.technique < 6) {
@@ -868,38 +832,24 @@ async function populateStudentDashboard() {
     const state = await loadState(currentUserId);
     dashboardStudentName.textContent = currentStudentName;
 
-    // Continue session card
     if (state.simulation.currentProblem) {
         continueSessionCard.innerHTML = `
             <span class="material-symbols-outlined text-5xl text-[var(--primary-color)] mb-3">play_circle</span>
             <h3 class="text-xl font-bold text-gray-800">Devam Et: ${state.simulation.currentProblem}</h3>
             <p class="text-gray-600 mt-2 mb-4">Kaldığın yerden simülasyona devam et.</p>
-            <button id="resume-simulation-button" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg">
+            <button data-action="resume-simulation" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg">
                 <span>Devam Et</span>
             </button>`;
-        document.getElementById('resume-simulation-button')?.addEventListener('click', () => {
-            simulation.problemDisplay.textContent = state.simulation.currentProblem;
-            showScreen('simulation');
-            backToSelectionButton.classList.remove('hidden');
-            saveProgressButton.classList.remove('hidden');
-            const lastModelResponse = rebuildUiFromState(simulation.chatContainer, state.simulation.conversationHistory);
-            if (lastModelResponse) {
-                displayOptions(lastModelResponse.therapistOptions);
-                updateGraphs(simulation.feedbackSection, lastModelResponse.scoring, lastModelResponse.clientImpact, lastModelResponse.feedback);
-            }
-        });
     } else {
         continueSessionCard.innerHTML = `
             <span class="material-symbols-outlined text-5xl text-pink-500 mb-3">psychology</span>
             <h3 class="text-xl font-bold text-gray-800">Yeni Simülasyon</h3>
             <p class="text-gray-600 mt-2 mb-4">Yeni bir BDT simülasyonu başlatarak becerilerini geliştir.</p>
-            <button id="start-new-simulation-button" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-pink-500 text-white font-semibold hover:bg-pink-600 transition-all duration-300 shadow-md hover:shadow-lg">
+            <button data-action="start-new-simulation" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-pink-500 text-white font-semibold hover:bg-pink-600 transition-all duration-300 shadow-md hover:shadow-lg">
                 <span>Başla</span>
             </button>`;
-        document.getElementById('start-new-simulation-button')?.addEventListener('click', () => showScreen('problemSelection'));
     }
 
-    // Progress tracking
     if (state.simulation.currentProblem) {
         const currentScores = calculateAverageScores(state.simulation.conversationHistory);
         updateGraphs(progressTracking.container, currentScores, { emotionalRelief: 0, cognitiveClarity: 0 }, "Mevcut seans ortalama puanların.");
@@ -907,7 +857,6 @@ async function populateStudentDashboard() {
         progressTracking.container.innerHTML = '<p class="text-center text-gray-500">Aktif bir seans bulunmuyor.</p>';
     }
 
-    // Cumulative progress
     const allHistory = state.completedSimulations.flatMap(s => s.history || []);
     if (allHistory.length > 0) {
         const cumulativeScores = calculateAverageScores(allHistory);
@@ -916,11 +865,9 @@ async function populateStudentDashboard() {
         cumulativeProgress.container.innerHTML = '<p class="text-center text-gray-500">Henüz tamamlanmış seans yok.</p>';
     }
     
-    // Recommendations & Achievements
     await generateAndDisplayRecommendations(currentUserId);
     await displayAchievements(currentUserId);
 
-    // QA History
     teacherQASystem.history.innerHTML = '';
     state.teacherComms.questions.forEach(q => {
         appendMessage(teacherQASystem.history, 'student_question', q.text);
@@ -1010,8 +957,7 @@ async function handleViewSummary(studentId: string, studentName: string) {
 
 function setActiveTeacherTab(tabName: string) {
     activeTeacherTab = tabName;
-
-    // Update nav link active state
+    
     document.querySelectorAll('.nav-link-teacher').forEach(link => {
         link.classList.remove('active');
         if (link.getAttribute('data-tab') === tabName) {
@@ -1027,7 +973,9 @@ function setActiveTeacherTab(tabName: string) {
 }
 
 async function populateTeacherDashboard() {
-    // Tab 1: Requests
+    showLoader(teacherDashboard.contents.requests, "İstekler yükleniyor...");
+    showLoader(teacherDashboard.contents.simulations, "Öğrenciler yükleniyor...");
+
     const pendingStudents = await fb.getPendingUsers();
     let requestsHtml = '<div class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4">';
     if (pendingStudents.length === 0) {
@@ -1037,8 +985,8 @@ async function populateTeacherDashboard() {
             <div class="flex justify-between items-center p-4 bg-indigo-50 rounded-lg">
                 <span class="font-semibold text-gray-800">${user.username}</span>
                 <div class="flex gap-2">
-                    <button data-user-id="${user.id}" data-action="approve" class="approve-button bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 transition-colors text-sm font-semibold">Onayla</button>
-                    <button data-user-id="${user.id}" data-action="reject" class="reject-button bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 transition-colors text-sm font-semibold">Reddet</button>
+                    <button data-action="approve-user" data-user-id="${user.id}" class="bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 transition-colors text-sm font-semibold">Onayla</button>
+                    <button data-action="reject-user" data-user-id="${user.id}" class="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 transition-colors text-sm font-semibold">Reddet</button>
                 </div>
             </div>
         `).join('');
@@ -1046,7 +994,6 @@ async function populateTeacherDashboard() {
     requestsHtml += '</div>';
     teacherDashboard.contents.requests.innerHTML = requestsHtml;
 
-    // Tab 2: Simulations
     const approvedStudents = await fb.getApprovedStudents();
     let simulationsHtml = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
     if (approvedStudents.length === 0) {
@@ -1060,67 +1007,26 @@ async function populateTeacherDashboard() {
                     <h4 class="font-bold text-lg text-gray-800">${student.username}</h4>
                     <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
                     <div class="mt-4 flex gap-2">
-                        <button data-student-id="${student.id}" data-student-name="${student.username}" class="view-sessions-button flex-1 bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors text-sm font-semibold">Seansları Görüntüle</button>
-                        <button data-student-id="${student.id}" data-student-name="${student.username}" class="view-summary-button bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 transition-colors text-sm font-semibold">AI Özet</button>
+                        <button data-action="view-sessions" data-student-id="${student.id}" data-student-name="${student.username}" class="flex-1 bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors text-sm font-semibold">Seansları Görüntüle</button>
+                        <button data-action="view-summary" data-student-id="${student.id}" data-student-name="${student.username}" class="bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 transition-colors text-sm font-semibold">AI Özet</button>
                     </div>
                 </div>`;
         }
     }
     simulationsHtml += '</div>';
     teacherDashboard.contents.simulations.innerHTML = simulationsHtml;
-
-    // Tab 3: Uploads
-    let allUploads: any[] = [];
-    for (const student of approvedStudents) {
-        const state = await loadState(student.id as string);
-        allUploads.push(...state.uploadedSessions);
-    }
-    const uploadsContainer = document.getElementById('uploads-list-container')!;
-    if (allUploads.length === 0) {
-        uploadsContainer.innerHTML = '<p class="text-center text-gray-500 py-4">Öğrenciler tarafından yüklenmiş seans bulunmuyor.</p>';
-    } else {
-        uploadsContainer.innerHTML = allUploads.map(upload => `
-             <div class="p-4 bg-indigo-50 rounded-lg">
-                <p class="font-semibold">${upload.studentId} <span class="font-normal text-gray-500 text-sm">- ${new Date(upload.timestamp).toLocaleDateString()}</span></p>
-                <p class="text-sm mt-2 text-gray-600 truncate">"${upload.transcript.substring(0, 100)}..."</p>
-                 <button class="text-indigo-600 hover:underline mt-2 text-sm font-semibold">İncele</button>
-             </div>
-        `).join('');
-    }
-
-
-    // Tab 4: Questions
-    let allQuestions: any[] = [];
-    for (const student of approvedStudents) {
-        const state = await loadState(student.id as string);
-        allQuestions.push(...state.teacherComms.questions);
-    }
-    const questionsContainer = document.getElementById('questions-list-container')!;
-     if (allQuestions.length === 0) {
-        questionsContainer.innerHTML = '<p class="text-center text-gray-500 py-4">Henüz öğrenci sorusu bulunmuyor.</p>';
-    } else {
-        questionsContainer.innerHTML = allQuestions.map(q => `
-            <div class="p-4 bg-amber-50 rounded-lg">
-                <p class="font-semibold">${q.studentId} sordu: <span class="font-normal text-gray-600">"${q.text}"</span></p>
-                <!-- Add answer input and button here -->
-            </div>
-        `).join('');
-    }
 }
 
 
 // --- Teacher Review Logic ---
 async function addTeacherComment(studentId: string, sessionIndex: number, turnId: string, commentText: string) {
     if (!studentId || sessionIndex < 0 || !turnId || !commentText) return false;
-
     try {
         const state = await loadState(studentId);
         const session = state.completedSimulations[sessionIndex];
         if (!session) return false;
-
         const turn = session.history.find((t: any) => t.id === turnId);
         if (!turn) return false;
-
         turn.teacherComment = commentText;
         await saveState(studentId, state);
         return true;
@@ -1132,18 +1038,15 @@ async function addTeacherComment(studentId: string, sessionIndex: number, turnId
 
 async function addGeneralFeedback(studentId: string, sessionIndex: number, feedbackText: string) {
     if (!studentId || sessionIndex < 0 || !feedbackText) return false;
-
     try {
         const state = await loadState(studentId);
         const session = state.completedSimulations[sessionIndex];
         if (!session) return false;
-
         session.history.push({
             id: `feedback_${Date.now()}`,
             role: 'teacher_feedback',
             parts: [{ text: feedbackText }],
         });
-
         await saveState(studentId, state);
         return true;
     } catch (error) {
@@ -1167,11 +1070,10 @@ async function displayStudentSessionsForReview(studentId: string, studentName: s
                     <p class="font-semibold text-gray-800">${sim.title}</p>
                     <p class="text-sm text-gray-500">Tamamlanma: ${new Date(sim.completionDate).toLocaleString()}</p>
                 </div>
-                <button data-session-index="${index}" class="review-specific-session-button bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors text-sm font-semibold">İncele</button>
+                <button data-action="review-specific-session" data-session-index="${index}" class="bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors text-sm font-semibold">İncele</button>
             </div>
         `).join('');
     }
-
     teacherReview.listView.classList.remove('hidden');
     teacherReview.detailView.classList.add('hidden');
     showScreen('teacherReview');
@@ -1204,7 +1106,6 @@ async function handleAnalyzeTranscript() {
         showNotification("Lütfen analiz için bir transkript girin.", 3000, 'error');
         return;
     }
-
     // @ts-ignore
     if (!process.env.API_KEY) {
         analysis.output.innerHTML = `<p class="text-red-500">Yapay zeka servisi doğru yapılandırılmamış. Lütfen site yöneticisi ile iletişime geçin.</p>`;
@@ -1212,7 +1113,7 @@ async function handleAnalyzeTranscript() {
     }
 
     showLoader(analysis.output, "Transkript analiz ediliyor...");
-    analysis.analyzeButton.setAttribute('disabled', 'true');
+    analysis.analyzeButton.disabled = true;
     analysis.analyzeButton.innerHTML = `<span>Analiz Ediliyor...</span>`;
 
     try {
@@ -1223,14 +1124,7 @@ async function handleAnalyzeTranscript() {
                 systemInstruction: analysisSystemInstruction,
                 responseMimeType: "application/json",
                 responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        overallSummary: { type: Type.STRING },
-                        strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        areasForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        keyMomentsAnalysis: { type: Type.ARRAY, items: { type: Type.STRING } }
-                    },
-                    required: ["overallSummary", "strengths", "areasForImprovement", "keyMomentsAnalysis"]
+                    type: Type.OBJECT, properties: { overallSummary: { type: Type.STRING }, strengths: { type: Type.ARRAY, items: { type: Type.STRING } }, areasForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } }, keyMomentsAnalysis: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ["overallSummary", "strengths", "areasForImprovement", "keyMomentsAnalysis"]
                 }
             }
         });
@@ -1259,7 +1153,7 @@ async function handleAnalyzeTranscript() {
         }
         analysis.output.innerHTML = `<p class="text-red-500">${errorMessage}</p>`;
     } finally {
-        analysis.analyzeButton.removeAttribute('disabled');
+        analysis.analyzeButton.disabled = false;
         analysis.analyzeButton.innerHTML = `<span class="material-symbols-outlined mr-2">psychology</span><span>Yapay Zeka ile Analiz Et</span>`;
     }
 }
@@ -1279,7 +1173,6 @@ async function archiveCurrentSimulation(studentId: string) {
         history: state.simulation.conversationHistory,
     });
     
-    // Reset current simulation state
     state.simulation.currentProblem = '';
     state.simulation.currentScenarioId = '';
     state.simulation.conversationHistory = [];
@@ -1289,228 +1182,192 @@ async function archiveCurrentSimulation(studentId: string) {
 }
 
 
-// --- Event Listeners ---
-function setupEventListeners() {
-    loginButton.addEventListener('click', handleLogin);
-    teacherLoginButton.addEventListener('click', handleTeacherLogin);
-    registerButton.addEventListener('click', handleRegister);
-    logoutButton.addEventListener('click', logout);
+// --- Event Delegation & App Initialization ---
+function setupGlobalEventListeners() {
+    mainContentContainer.addEventListener('click', async (e) => {
+        const target = e.target as HTMLElement;
 
-    showRegisterView.addEventListener('click', (e) => {
-        e.preventDefault();
-        loginView.classList.add('hidden');
-        teacherLoginView.classList.add('hidden');
-        registerView.classList.remove('hidden');
-    });
+        // --- Auth Screen Actions ---
+        const showRegisterBtn = target.closest('#show-register-view');
+        if (showRegisterBtn) {
+            e.preventDefault();
+            loginView.classList.add('hidden');
+            teacherLoginView.classList.add('hidden');
+            registerView.classList.remove('hidden');
+        }
+        const showLoginBtn = target.closest('#show-login-view, #show-student-login-view');
+        if (showLoginBtn) {
+            e.preventDefault();
+            registerView.classList.add('hidden');
+            teacherLoginView.classList.add('hidden');
+            loginView.classList.remove('hidden');
+        }
+        const showTeacherLoginBtn = target.closest('#show-teacher-login-view');
+        if (showTeacherLoginBtn) {
+            e.preventDefault();
+            loginView.classList.add('hidden');
+            registerView.classList.add('hidden');
+            teacherLoginView.classList.remove('hidden');
+        }
+        if (target.closest('#login-button')) await handleLogin();
+        if (target.closest('#register-button')) await handleRegister();
+        if (target.closest('#teacher-login-button')) await handleTeacherLogin();
 
-    showLoginView.addEventListener('click', (e) => {
-        e.preventDefault();
-        registerView.classList.add('hidden');
-        teacherLoginView.classList.add('hidden');
-        loginView.classList.remove('hidden');
-    });
-    
-    showTeacherLoginView.addEventListener('click', (e) => {
-        e.preventDefault();
-        loginView.classList.add('hidden');
-        registerView.classList.add('hidden');
-        teacherLoginView.classList.remove('hidden');
-    });
-
-    showStudentLoginView.addEventListener('click', (e) => {
-        e.preventDefault();
-        teacherLoginView.classList.add('hidden');
-        registerView.classList.add('hidden');
-        loginView.classList.remove('hidden');
-    });
-
-
-    problemSelectionContainer.addEventListener('click', handleProblemSelect);
-    simulation.optionsContainer.addEventListener('click', handleOptionSelect);
-
-    saveProgressButton.addEventListener('click', async () => {
-        await archiveCurrentSimulation(currentUserId);
-        await populateStudentDashboard();
-        showScreen('studentDashboard');
-        showNotification('İlerlemeniz başarıyla kaydedildi!', 3000);
-    });
-
-    backToSelectionButton.addEventListener('click', () => showScreen('problemSelection'));
-    goToAnalysisButton.addEventListener('click', () => showScreen('sessionAnalysis'));
-    // analysis.backButton.addEventListener('click', () => showScreen('studentDashboard')); // Replaced by Nav
-    analysis.analyzeButton.addEventListener('click', handleAnalyzeTranscript);
-    analysis.sendButton.addEventListener('click', async () => {
-        if(currentAnalysisCache) {
-            const state = await loadState(currentUserId);
-            state.uploadedSessions.push({
-                id: `upload_${Date.now()}`,
-                studentId: currentUserId,
-                ...currentAnalysisCache,
-                teacherFeedback: '',
-                timestamp: new Date().toISOString()
-            });
-            await saveState(currentUserId, state);
-            showNotification("Analiz başarıyla öğretmene gönderildi!", 3000);
+        // --- Main Navigation & Header ---
+        if (target.closest('#logout-button')) logout();
+        if (target.closest('#back-to-selection-button')) showScreen('problemSelection');
+        if (target.closest('#save-progress-button')) {
+            await archiveCurrentSimulation(currentUserId);
+            await populateStudentDashboard();
             showScreen('studentDashboard');
-            currentAnalysisCache = null; // Clear cache
+            showNotification('İlerlemeniz başarıyla kaydedildi!', 3000);
         }
-    });
-
-    teacherQASystem.button.addEventListener('click', async () => {
-        const questionText = teacherQASystem.input.value.trim();
-        if(!questionText) return;
-
-        const state = await loadState(currentUserId);
-        const newQuestion = {
-            id: `q_${Date.now()}`,
-            studentId: currentUserId,
-            text: questionText,
-            timestamp: new Date().toISOString()
-        };
-        state.teacherComms.questions.push(newQuestion);
-        await saveState(currentUserId, state);
+        const navButton = target.closest('.nav-link');
+        if (navButton) {
+            // FIX: Cast navButton to HTMLElement to access dataset property.
+            const screen = (navButton as HTMLElement).dataset.screen as keyof typeof screens | undefined;
+            const tab = (navButton as HTMLElement).dataset.tab;
+            if (screen) showScreen(screen);
+            else if (tab) setActiveTeacherTab(tab);
+        }
         
-        appendMessage(teacherQASystem.history, 'student_question', questionText);
-        teacherQASystem.input.value = '';
-        showNotification("Sorunuz öğretmene iletildi.", 3000);
-    });
-    
-    mainNav.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement;
-        const navButton = target.closest('.nav-link') as HTMLButtonElement | null;
-        if (!navButton) return;
-
-        const screen = navButton.dataset.screen as keyof typeof screens | undefined;
-        const tab = navButton.dataset.tab;
-
-        if (screen) {
-            showScreen(screen);
-        } else if (tab) {
-            setActiveTeacherTab(tab);
-            showScreen('teacherDashboard'); // Always show the main dashboard container
+        // --- Student Dashboard Actions ---
+        if (target.closest('[data-action="resume-simulation"]')) {
+             const state = await loadState(currentUserId);
+             simulation.problemDisplay.textContent = state.simulation.currentProblem;
+             showScreen('simulation');
+             backToSelectionButton.classList.remove('hidden');
+             saveProgressButton.classList.remove('hidden');
+             const lastModelResponse = rebuildUiFromState(simulation.chatContainer, state.simulation.conversationHistory);
+             if (lastModelResponse) {
+                 displayOptions(lastModelResponse.therapistOptions);
+                 updateGraphs(simulation.feedbackSection, lastModelResponse.scoring, lastModelResponse.clientImpact, lastModelResponse.feedback);
+             }
         }
-    });
+        if (target.closest('[data-action="start-new-simulation"]')) showScreen('problemSelection');
+        if (target.closest('#go-to-analysis-button')) showScreen('sessionAnalysis');
+        if (target.closest('#ask-teacher-button')) {
+             const questionText = teacherQASystem.input.value.trim();
+             if(!questionText) return;
+             const state = await loadState(currentUserId);
+             const newQuestion = { id: `q_${Date.now()}`, studentId: currentUserId, text: questionText, timestamp: new Date().toISOString() };
+             state.teacherComms.questions.push(newQuestion);
+             await saveState(currentUserId, state);
+             appendMessage(teacherQASystem.history, 'student_question', questionText);
+             teacherQASystem.input.value = '';
+             showNotification("Sorunuz öğretmene iletildi.", 3000);
+        }
 
-    // --- Consolidated Teacher Dashboard Event Listener ---
-    teacherDashboard.contentContainer.addEventListener('click', async (event) => {
-        const target = event.target as HTMLElement;
+        // --- Problem Selection Action ---
+        const problemButton = target.closest('.problem-button') as HTMLButtonElement;
+        if(problemButton) {
+            const scenarioId = problemButton.dataset.scenarioId;
+            if (scenarioId) await startSimulation(scenarioId);
+        }
 
-        // --- Handle Approval/Rejection in Requests Tab ---
-        const approvalButton = target.closest('.approve-button, .reject-button') as HTMLButtonElement | null;
-        if (approvalButton) {
-            const userId = approvalButton.dataset.userId!;
-            const action = approvalButton.dataset.action!;
-            try {
-                await fb.updateUserStatus(userId, action === 'approve' ? 'approved' : 'rejected');
-                showNotification(`Öğrenci ${action === 'approve' ? 'onaylandı' : 'reddedildi'}.`, 3000, 'success');
-                await populateTeacherDashboard(); // Refresh the list
-            } catch (error) {
-                showNotification('İşlem sırasında bir hata oluştu.', 3000, 'error');
-                console.error("Error updating user status:", error);
+        // --- Simulation Screen Actions ---
+        const simOptionButton = target.closest('.option-button') as HTMLButtonElement;
+        if (simOptionButton) await handleOptionSelect(simOptionButton);
+        const rationaleButton = target.closest('[data-action="show-rationale"]');
+        if (rationaleButton) {
+            const rationale = rationaleButton.getAttribute('data-rationale');
+            showModal('rationale', 'Terapötik Gerekçe', rationale || 'Gerekçe bulunamadı.');
+        }
+
+        // --- Analysis Screen Actions ---
+        if (target.closest('#analyze-transcript-button')) await handleAnalyzeTranscript();
+        if (target.closest('#send-to-teacher-button')) {
+            if(currentAnalysisCache) {
+                const state = await loadState(currentUserId);
+                state.uploadedSessions.push({ id: `upload_${Date.now()}`, studentId: currentUserId, ...currentAnalysisCache, teacherFeedback: '', timestamp: new Date().toISOString() });
+                await saveState(currentUserId, state);
+                showNotification("Analiz başarıyla öğretmene gönderildi!", 3000);
+                showScreen('studentDashboard');
+                currentAnalysisCache = null;
             }
-            return;
         }
 
-        // --- Handle Actions in Simulations Tab ---
-        const summaryButton = target.closest('.view-summary-button') as HTMLElement;
+        // --- Teacher Dashboard Actions ---
+        const approveButton = target.closest('[data-action="approve-user"]');
+        if (approveButton) {
+            const userId = (approveButton as HTMLElement).dataset.userId!;
+            await fb.updateUserStatus(userId, 'approved');
+            showNotification(`Öğrenci onaylandı.`, 3000);
+            await populateTeacherDashboard();
+        }
+        const rejectButton = target.closest('[data-action="reject-user"]');
+        if (rejectButton) {
+            const userId = (rejectButton as HTMLElement).dataset.userId!;
+            await fb.updateUserStatus(userId, 'rejected');
+            showNotification(`Öğrenci reddedildi.`, 3000);
+            await populateTeacherDashboard();
+        }
+        const summaryButton = target.closest('[data-action="view-summary"]');
         if (summaryButton) {
-            const studentId = summaryButton.dataset.studentId;
-            const studentName = summaryButton.dataset.studentName;
-            if (studentId && studentName) {
-                handleViewSummary(studentId, studentName);
-            }
-            return;
+            const { studentId, studentName } = (summaryButton as HTMLElement).dataset;
+            if (studentId && studentName) await handleViewSummary(studentId, studentName);
         }
-
-        const sessionsButton = target.closest('.view-sessions-button') as HTMLElement;
+        const sessionsButton = target.closest('[data-action="view-sessions"]');
         if (sessionsButton) {
-            const studentId = sessionsButton.dataset.studentId;
-            const studentName = sessionsButton.dataset.studentName;
-            if (studentId && studentName) {
-                displayStudentSessionsForReview(studentId, studentName);
-            }
-            return;
+            const { studentId, studentName } = (sessionsButton as HTMLElement).dataset;
+            if (studentId && studentName) await displayStudentSessionsForReview(studentId, studentName);
         }
-    });
-
-    teacherReview.screen.addEventListener('click', async (e) => {
-        const target = e.target as HTMLElement;
-        const specificSessionButton = target.closest('.review-specific-session-button');
-        const addCommentButton = target.closest('.add-inline-comment-button');
-        const submitCommentButton = target.closest('.submit-inline-comment');
-
-        if (specificSessionButton) {
-            const sessionIndex = parseInt((specificSessionButton as HTMLElement).dataset.sessionIndex!, 10);
-            reviewSpecificSession(sessionIndex);
+        
+        // --- Teacher Review Screen Actions ---
+        const reviewSessionButton = target.closest('[data-action="review-specific-session"]');
+        if (reviewSessionButton) {
+            const sessionIndex = parseInt((reviewSessionButton as HTMLElement).dataset.sessionIndex!, 10);
+            await reviewSpecificSession(sessionIndex);
         }
-
+        if (target.closest('#back-to-teacher-dashboard-button')) {
+            setActiveTeacherTab('simulations');
+            showScreen('teacherDashboard');
+        }
+        if (target.closest('#back-to-session-list-button')) {
+            await displayStudentSessionsForReview(reviewingStudentId, reviewingStudentName);
+        }
+        const addCommentButton = target.closest('[data-action="add-inline-comment"]');
         if (addCommentButton) {
             const turnId = (addCommentButton as HTMLElement).dataset.turnId;
-            if (turnId) {
-                const commentInputDiv = document.getElementById(`comment-input-${turnId}`);
-                commentInputDiv?.classList.toggle('hidden');
-            }
+            document.getElementById(`comment-input-${turnId}`)?.classList.toggle('hidden');
         }
-
+        const submitCommentButton = target.closest('[data-action="submit-inline-comment"]');
         if (submitCommentButton) {
-            const turnId = (submitCommentButton as HTMLElement).dataset.turnId;
+            const turnId = (submitCommentButton as HTMLElement).dataset.turnId!;
             const commentInput = submitCommentButton.previousElementSibling as HTMLInputElement;
             const commentText = commentInput.value.trim();
-            if (turnId && commentText) {
+            if (commentText) {
                 const success = await addTeacherComment(reviewingStudentId, reviewingSessionIndex, turnId, commentText);
-                if (success) {
-                    showNotification("Yorum başarıyla eklendi.", 2000);
-                    await reviewSpecificSession(reviewingSessionIndex); // Refresh the view
-                } else {
-                    showNotification("Yorum eklenirken hata oluştu.", 3000, 'error');
+                if(success) await reviewSpecificSession(reviewingSessionIndex);
+            }
+        }
+        if (target.closest('#submit-feedback-button')) {
+            const feedbackText = teacherReview.feedbackInput.value.trim();
+            if (feedbackText) {
+                const success = await addGeneralFeedback(reviewingStudentId, reviewingSessionIndex, feedbackText);
+                if(success) {
+                    teacherReview.feedbackInput.value = '';
+                    await reviewSpecificSession(reviewingSessionIndex);
                 }
             }
         }
-    });
-    
-    teacherReview.submitFeedbackButton.addEventListener('click', async () => {
-        const feedbackText = teacherReview.feedbackInput.value.trim();
-        if (feedbackText) {
-            const success = await addGeneralFeedback(reviewingStudentId, reviewingSessionIndex, feedbackText);
-            if(success) {
-                showNotification("Genel geri bildirim eklendi.", 2000);
-                teacherReview.feedbackInput.value = '';
-                await reviewSpecificSession(reviewingSessionIndex); // Refresh view to show feedback
-            } else {
-                 showNotification("Geri bildirim eklenirken hata oluştu.", 3000, 'error');
-            }
-        }
-    });
 
-    teacherReview.backToDashboardButton.addEventListener('click', () => {
-        setActiveTeacherTab('simulations'); // Go back to the student list
-        showScreen('teacherDashboard');
-    });
-    teacherReview.backToSessionListButton.addEventListener('click', () => displayStudentSessionsForReview(reviewingStudentId, reviewingStudentName));
-
-    rationaleModal.closeButton.addEventListener('click', () => hideModal('rationale'));
-    summaryModal.closeButton.addEventListener('click', () => hideModal('summary'));
-    simulation.chatContainer.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement;
-        const button = target.closest('.rationale-button');
-        if (button) {
-            const rationale = button.getAttribute('data-rationale');
-            showModal('rationale', 'Terapötik Gerekçe', rationale || 'Gerekçe bulunamadı.');
-        }
+        // --- Modal Close Actions ---
+        if (target.closest('#close-modal-button')) hideModal('rationale');
+        if (target.closest('#close-summary-modal-button')) hideModal('summary');
     });
 }
 
-// --- App Initialization ---
 async function initializeApp() {
-    setupEventListeners();
-
-    // Proactive check for Firebase configuration
-    if (fb.firebaseConfig.apiKey === "YOUR_API_KEY") {
-        alert("UYARI: Firebase yapılandırması tamamlanmamış. Lütfen 'firebase.ts' dosyasını kendi proje bilgilerinizle güncelleyin. Aksi takdirde uygulama çalışmayacaktır.");
-        return;
+    // Check for Firebase config first. If it's missing, block the app and show the warning.
+    if (fb.firebaseConfig.apiKey === "YOUR_API_KEY" || !fb.firebaseConfig.apiKey) {
+        layoutContainer.style.display = 'none'; // Hide the entire app UI
+        configWarningOverlay.classList.remove('hidden'); // Show the warning overlay
+        return; // Stop all further execution
     }
 
-    // Initial population of scenarios
+    setupGlobalEventListeners();
+
     const defaultContainer = document.getElementById('default-scenarios-container')!;
     defaultContainer.innerHTML = defaultScenarios.map(s => `
         <button class="problem-button group" data-scenario-id="${s.id}">
@@ -1519,14 +1376,12 @@ async function initializeApp() {
         </button>
     `).join('');
 
-    // --- Unified & Robust Authentication Gatekeeper ---
     fb.onAuthStateChanged(async (user) => {
         const teacherSession = JSON.parse(sessionStorage.getItem(TEACHER_SESSION_KEY) || 'null');
 
-        // Priority 1: Check for an active teacher session
         if (teacherSession && teacherSession.type === 'teacher') {
             currentStudentName = 'Öğretmen Hesabı';
-            studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span id="student-name-display" class="font-semibold text-gray-800">${currentStudentName}</span>`;
+            studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">${currentStudentName}</span>`;
             studentInfo.classList.remove('hidden');
             logoutButton.classList.remove('hidden');
             populateTeacherNav();
@@ -1534,25 +1389,21 @@ async function initializeApp() {
             setActiveTeacherTab(activeTeacherTab || 'requests');
             showScreen('teacherDashboard');
         } 
-        // Priority 2: Check for a logged-in Firebase user (student)
         else if (user) {
             const userData = await fb.getUserData(user.uid);
             if (userData && userData.status === 'approved') {
                 currentUserId = user.uid;
                 currentStudentName = userData.username;
-                studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span id="student-name-display" class="font-semibold">${currentStudentName}</span>`;
+                studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
                 studentInfo.classList.remove('hidden');
                 logoutButton.classList.remove('hidden');
                 populateStudentNav();
                 await populateStudentDashboard();
                 showScreen('studentDashboard');
             } else {
-                 // Student is not approved or data is missing. Sign them out.
-                 // This will trigger onAuthStateChanged again with user=null.
                  await fb.logoutUser();
             }
         } 
-        // Priority 3: No one is logged in
         else {
             currentUserId = '';
             currentStudentName = '';
