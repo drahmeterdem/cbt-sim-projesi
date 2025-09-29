@@ -3,14 +3,15 @@
 declare const firebase: any;
 
 // --- Firebase Initialization ---
-// IMPORTANT: Replace with your actual Firebase project configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY", // REPLACE
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com", // REPLACE
-  projectId: "YOUR_PROJECT_ID", // REPLACE
-  storageBucket: "YOUR_PROJECT_ID.appspot.com", // REPLACE
-  messagingSenderId: "YOUR_SENDER_ID", // REPLACE
-  appId: "YOUR_APP_ID" // REPLACE
+  apiKey: "AIzaSyBMOhPCumWJncjfch4GhdPEnwO03c_8o5E",
+  authDomain: "cbt-sim-projesi.firebaseapp.com",
+  projectId: "cbt-sim-projesi",
+  storageBucket: "cbt-sim-projesi.firebasestorage.app",
+  messagingSenderId: "869396190469",
+  appId: "1:869396190469:web:c6db6adefbd2c17e86d36c",
+  measurementId: "G-9S9PYC74LR"
 };
 
 // Initialize Firebase
