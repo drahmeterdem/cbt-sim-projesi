@@ -11,23 +11,18 @@ interface Scenario {
     isCustom: boolean;
 }
 
-// --- Gemini AI Client Initialization ---
-// @ts-ignore
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-
 // --- Global State & Constants ---
+let ai: GoogleGenAI | null = null;
 let currentStudentName: string = '';
 let currentUserId: string = '';
-let activeTeacherTab: string = 'requests';
 const TEACHER_PASSWORD = 'teacher3243';
 const TEACHER_SESSION_KEY = 'cbt_sim_teacher_session_v1';
 
-
 // --- DOM Element References ---
-const allPages = document.querySelectorAll('.page');
-const mainNav = document.getElementById('main-nav')!;
-const studentInfo = document.getElementById('student-info')!;
-const headerButtons = document.getElementById('header-buttons')!;
+const loginContainer = document.getElementById('login-container')!;
+const dashboardContainer = document.getElementById('dashboard-container')!;
+const userInfo = document.getElementById('user-info')!;
+const logoutButtonContainer = document.getElementById('logout-button-container')!;
 const notificationContainer = document.getElementById('notification-container')!;
 const rationaleModal = {
     container: document.getElementById('rationale-modal')!,
@@ -41,7 +36,6 @@ const summaryModal = {
 };
 const loadingOverlay = document.getElementById('loading-overlay')!;
 const configWarningOverlay = document.getElementById('config-warning-overlay')!;
-
 
 // --- System Prompts (Keep as is) ---
 const simulationSystemInstruction = `SENİN BİRİNCİL VE EN ÖNEMLİ GÖREVİN: Bir Bilişsel Davranışçı Terapi (BDT) simülasyonunda, adı Elif olan sanal bir danışanı **olağanüstü derecede gerçekçi bir şekilde** canlandırmak. Belirlenen sorun alanını ve danışan profilini tamamen içselleştir. Yanıtların, sanki gerçekten o duyguları yaşayan, o düşüncelere sahip bir insanmışsın gibi gelmeli. Amacın, mümkün olan en otantik seans deneyimini yaratmak.
@@ -77,6 +71,25 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 3.  **patternsForImprovement:** Öğrencinin tekrar eden zorlukları, geliştirmesi gereken beceriler veya kaçındığı müdahaledeler. Maddeler halinde listele.
 4.  **actionableSuggestions:** Öğrencinin gelişimini desteklemek için 2-3 adet somut, eyleme geçirilebilir öneri (örn: "Sokratik sorgulama tekniğini daha derinden keşfetmek için 'X' senaryosunu tekrar deneyebilir.", "Danışan direnciyle karşılaştığında verdiği tepkileri gözden geçirmesi faydalı olacaktır.").`;
 
+// --- AI Client Management ---
+async function getAiClient(): Promise<GoogleGenAI | null> {
+    if (ai) return ai;
+    try {
+        const keys = await fb.getApiKeys();
+        if (keys?.googleApiKey) {
+            // @ts-ignore
+            ai = new GoogleGenAI({ apiKey: keys.googleApiKey });
+            return ai;
+        }
+        showNotification('Google API anahtarı ayarlanmamış. Öğretmen panelinden ayarlayın.', 5000, 'error');
+        return null;
+    } catch (error) {
+        console.error("API Anahtarı alınamadı:", error);
+        showNotification('API anahtarı alınamadı. Lütfen öğretmen ile iletişime geçin.', 5000, 'error');
+        return null;
+    }
+}
+
 // --- User & State Management ---
 function getInitialState() {
     return {
@@ -96,11 +109,6 @@ async function loadState(studentId: string): Promise<ReturnType<typeof getInitia
     return initialState;
 }
 
-async function saveState(studentId: string, state: object) {
-    if (!studentId) return;
-    await fb.saveState(studentId, state);
-}
-
 // --- Scenarios Management ---
 const defaultScenarios: Scenario[] = [
     { id: 'default_anxiety', title: 'Sınav Kaygısı', description: 'Yaklaşan önemli bir sınav nedeniyle yoğun stres ve başarısızlık korkusu yaşayan bir danışan.', isCustom: false },
@@ -111,19 +119,10 @@ const defaultScenarios: Scenario[] = [
     { id: 'default_depression', title: 'Depresif Duygudurum', description: 'Hayattan keyif alamama, sürekli yorgunluk ve umutsuzluk hisleriyle başa çıkmaya çalışan bir danışan.', isCustom: false },
 ];
 
-function getAllScenarios(): Scenario[] {
-    return [...defaultScenarios];
-}
+function getAllScenarios(): Scenario[] { return [...defaultScenarios]; }
 
 // --- Core UI & Rendering Logic ---
-function showLoader(show: boolean) {
-    loadingOverlay.classList.toggle('hidden', !show);
-}
-
-function showPage(pageId: string) {
-    allPages.forEach(page => page.classList.add('hidden'));
-    document.getElementById(pageId)?.classList.remove('hidden');
-}
+function showLoader(show: boolean) { loadingOverlay.classList.toggle('hidden', !show); }
 
 function showNotification(message: string, duration: number = 3000, type: 'success' | 'error' = 'success') {
     const notification = document.createElement('div');
@@ -149,181 +148,159 @@ function hideModal(modal: 'rationale' | 'summary') {
 }
 
 function showLoginMessage(message: string, type: 'success' | 'error' = 'error') {
-    const container = document.getElementById('login-message-container')!;
+    const container = document.getElementById('student-login-message')!;
     const color = type === 'success' ? 'text-green-700 bg-green-100' : 'text-red-600 bg-red-100';
     container.innerHTML = `<div class="${color} p-3 rounded-lg">${message}</div>`;
 }
 
+function renderDashboard(html: string) {
+    dashboardContainer.innerHTML = html;
+    loginContainer.classList.add('hidden');
+    dashboardContainer.classList.add('visible');
 
-// --- Page Population Functions ---
-function populateLoginScreen() {
-    headerButtons.innerHTML = '';
-    mainNav.classList.add('hidden');
-    studentInfo.classList.add('hidden');
-    showPage('page-login');
+    logoutButtonContainer.innerHTML = `<button data-action="logout" class="flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all shadow-sm">
+        <span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>
+    </button>`;
 }
 
+function resetToLoginScreen() {
+    dashboardContainer.innerHTML = '';
+    dashboardContainer.classList.remove('visible');
+    loginContainer.classList.remove('hidden');
+    logoutButtonContainer.innerHTML = '';
+    userInfo.classList.add('hidden');
+    sessionStorage.removeItem(TEACHER_SESSION_KEY);
+    currentUserId = '';
+    currentStudentName = '';
+    ai = null; // Clear AI client on logout
+}
+
+// --- Page Population Functions ---
 async function populateStudentDashboard() {
     showLoader(true);
     try {
         const state = await loadState(currentUserId);
-        
-        document.getElementById('student-dashboard-name')!.textContent = currentStudentName;
-        
-        headerButtons.innerHTML = `<button data-action="logout" class="flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all shadow-sm">
-            <span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>
-        </button>`;
-        
-        mainNav.innerHTML = `
-            <button data-action="populate-student-dashboard" class="nav-link active flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold">
-                <span class="material-symbols-outlined">dashboard</span> Panelim
+        const scenariosHtml = getAllScenarios().map(s => `
+            <button class="problem-button group" data-action="start-simulation" data-scenario-id="${s.id}">
+                <h4 class="text-lg font-bold text-gray-800 group-hover:text-white">${s.title}</h4>
+                <p class="text-sm text-gray-600 group-hover:text-indigo-200 mt-1">${s.description}</p>
             </button>
-            <button data-action="populate-problem-selection" class="nav-link flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-100">
-                <span class="material-symbols-outlined">play_circle</span> Yeni Simülasyon
-            </button>
-        `;
-        mainNav.classList.remove('hidden');
+        `).join('');
 
-        const continueContainer = document.getElementById('student-continue-session-container')!;
+        let continueHtml = '';
         if (state.simulation.currentProblem) {
-            continueContainer.innerHTML = `<div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl text-center">
+            continueHtml = `<div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl text-center">
                 <span class="material-symbols-outlined text-5xl text-[var(--primary-color)] mb-3">play_circle</span>
                 <h3 class="text-xl font-bold text-gray-800">Devam Et: ${state.simulation.currentProblem}</h3>
                 <p class="text-gray-600 mt-2 mb-4">Kaldığın yerden simülasyona devam et.</p>
                 <button data-action="resume-simulation" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all">Devam Et</button>
             </div>`;
-        } else {
-            continueContainer.innerHTML = '';
         }
 
-        const completedContainer = document.getElementById('student-completed-simulations')!;
-        if (state.completedSimulations.length > 0) {
-            completedContainer.innerHTML = state.completedSimulations.map(sim => `
-                <div class="p-4 bg-indigo-50 rounded-lg">
-                    <p class="font-semibold text-gray-800">${sim.title}</p>
-                    <p class="text-sm text-gray-500">Tamamlanma: ${new Date(sim.completionDate).toLocaleString()}</p>
+        const dashboardHtml = `
+            <div class="w-full max-w-5xl mx-auto space-y-8 animate-fade-in-up">
+                <div class="text-center">
+                    <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Hoş Geldin, <span class="text-indigo-600">${currentStudentName}</span>!</h2>
+                    <p class="text-gray-600 text-lg mt-2">Simülasyonu başlatmak için bir senaryo seç.</p>
                 </div>
-            `).join('');
-        } else {
-            completedContainer.innerHTML = '<p class="text-center text-gray-500">Henüz tamamlanmış bir simülasyonunuz yok.</p>';
-        }
-
-        showPage('page-student-dashboard');
-    } catch(error) {
+                ${continueHtml}
+                <div id="problem-selection-grid" class="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    ${scenariosHtml}
+                </div>
+            </div>
+        `;
+        renderDashboard(dashboardHtml);
+    } catch (error) {
         console.error("Error populating student dashboard:", error);
         showLoginMessage("Öğrenci paneli yüklenirken bir hata oluştu.");
-        populateLoginScreen();
+        await handleLogout();
     } finally {
         showLoader(false);
     }
 }
 
-function populateProblemSelection() {
-    document.querySelectorAll('#main-nav .nav-link').forEach(l => l.classList.remove('active'));
-    document.querySelector('[data-action="populate-problem-selection"]')?.classList.add('active');
-
-    const scenariosHtml = getAllScenarios().map(s => `
-        <button class="problem-button group" data-action="start-simulation" data-scenario-id="${s.id}">
-            <h4 class="text-lg font-bold text-gray-800 group-hover:text-white">${s.title}</h4>
-            <p class="text-sm text-gray-600 group-hover:text-indigo-200 mt-1">${s.description}</p>
-        </button>
-    `).join('');
-    
-    document.getElementById('problem-selection-grid')!.innerHTML = scenariosHtml;
-    showPage('page-problem-selection');
-}
-
-async function populateTeacherDashboard(tab = 'requests') {
+async function populateTeacherDashboard(initialTab = 'requests') {
     showLoader(true);
-    activeTeacherTab = tab;
-    
-    headerButtons.innerHTML = `<button data-action="logout" class="flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all shadow-sm">
-        <span class="material-symbols-outlined mr-2">logout</span><span>Çıkış Yap</span>
-    </button>`;
-    
-    mainNav.innerHTML = `
-        <button data-action="populate-teacher-dashboard" data-tab="requests" class="nav-link nav-link-teacher ${tab === 'requests' ? 'active' : ''} flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-amber-100">
-            <span class="material-symbols-outlined">how_to_reg</span> Kayıt İstekleri
-        </button>
-        <button data-action="populate-teacher-dashboard" data-tab="simulations" class="nav-link nav-link-teacher ${tab === 'simulations' ? 'active' : ''} flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-amber-100">
-            <span class="material-symbols-outlined">psychology</span> Öğrenciler
-        </button>
-    `;
-    mainNav.classList.remove('hidden');
 
-    const contentContainer = document.getElementById('teacher-dashboard-content')!;
-    contentContainer.innerHTML = ''; // Clear previous content
-    showPage('page-teacher-dashboard');
-
-    try {
-        let tabContentHtml = '';
-        if (tab === 'requests') {
-            const pendingStudents = await fb.getPendingUsers();
-            if (pendingStudents.length === 0) {
-                tabContentHtml = '<p class="text-center text-gray-500 py-4">Onay bekleyen öğrenci bulunmuyor.</p>';
-            } else {
-                tabContentHtml = pendingStudents.map((user) => `
+    const renderTabContent = async (tab: string): Promise<string> => {
+        try {
+            if (tab === 'requests') {
+                const pendingStudents = await fb.getPendingUsers();
+                if (pendingStudents.length === 0) return '<p class="text-center text-gray-500 py-4">Onay bekleyen öğrenci bulunmuyor.</p>';
+                return pendingStudents.map((user) => `
                     <div class="flex justify-between items-center p-4 bg-indigo-50 rounded-lg">
                         <span class="font-semibold text-gray-800">${user.username}</span>
                         <div class="flex gap-2">
                             <button data-action="approve-user" data-user-id="${user.id}" class="bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 text-sm font-semibold">Onayla</button>
                             <button data-action="reject-user" data-user-id="${user.id}" class="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 text-sm font-semibold">Reddet</button>
                         </div>
-                    </div>
-                `).join('');
-            }
-        } else if (tab === 'simulations') {
-            const approvedStudents = await fb.getApprovedStudents();
-            if (approvedStudents.length === 0) {
-                tabContentHtml = '<p class="text-center text-gray-500 py-8 col-span-full">Henüz onaylanmış öğrenci bulunmuyor.</p>';
-            } else {
-                let studentCardsHtml = '';
-                for (const student of approvedStudents) {
+                    </div>`).join('');
+            } else if (tab === 'simulations') {
+                const approvedStudents = await fb.getApprovedStudents();
+                if (approvedStudents.length === 0) return '<p class="text-center text-gray-500 py-8 col-span-full">Henüz onaylanmış öğrenci bulunmuyor.</p>';
+                const studentCardsHtml = await Promise.all(approvedStudents.map(async (student) => {
                     const studentState = await loadState(student.id as string);
                     const completedCount = studentState.completedSimulations.length;
-                    studentCardsHtml += `
-                         <div class="bg-white/80 p-5 rounded-xl shadow-lg">
-                            <h4 class="font-bold text-lg text-gray-800">${student.username}</h4>
-                            <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
-                            <div class="mt-4 flex gap-2">
-                                <button data-action="view-summary" data-student-id="${student.id}" data-student-name="${student.username}" class="flex-1 bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 text-sm font-semibold">AI Özet</button>
+                    return `<div class="bg-white/80 p-5 rounded-xl shadow-lg">
+                                <h4 class="font-bold text-lg text-gray-800">${student.username}</h4>
+                                <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
+                                <div class="mt-4 flex gap-2">
+                                    <button data-action="view-summary" data-student-id="${student.id}" data-student-name="${student.username}" class="flex-1 bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 text-sm font-semibold">AI Özet</button>
+                                </div>
+                            </div>`;
+                }));
+                return `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${studentCardsHtml.join('')}</div>`;
+            } else if (tab === 'settings') {
+                 const keys = await fb.getApiKeys();
+                 return `
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800 mb-2">API Anahtar Yönetimi</h3>
+                        <p class="text-sm text-gray-600 mb-4">AI özelliklerinin çalışması için API anahtarlarını buraya girin. Bu anahtarlar veritabanında saklanır.</p>
+                        <div class="space-y-4">
+                            <div>
+                                <label for="google-api-key" class="block text-sm font-medium text-gray-700">Google AI (Gemini) API Anahtarı</label>
+                                <input type="password" id="google-api-key" value="${keys?.googleApiKey || ''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500">
                             </div>
-                        </div>`;
-                }
-                tabContentHtml = `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${studentCardsHtml}</div>`;
+                             <div>
+                                <label for="openai-api-key" class="block text-sm font-medium text-gray-700">OpenAI (ChatGPT) API Anahtarı (İsteğe Bağlı)</label>
+                                <input type="password" id="openai-api-key" value="${keys?.openaiApiKey || ''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500">
+                            </div>
+                            <button data-action="save-api-keys" class="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 font-semibold">Anahtarları Kaydet</button>
+                        </div>
+                    </div>
+                 `;
             }
+            return '';
+        } catch(error) {
+             console.error(`Error rendering tab ${tab}:`, error);
+             return `<p class="text-center text-red-500 py-4">Bu sekme yüklenirken bir hata oluştu.</p>`;
         }
-        contentContainer.innerHTML = tabContentHtml;
-    } catch(error: any) {
-        console.error("Error rendering teacher dashboard:", error);
-        if (error.code && error.code.includes('permission-denied')) {
-            contentContainer.innerHTML = `
-                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
-                    <p class="font-bold">Veritabanı Erişim Hatası</p>
-                    <p>Öğrenci verileri alınamadı. Bu genellikle Firebase Firestore güvenlik kurallarından kaynaklanır.</p>
-                    <p class="mt-2"><b>Çözüm:</b> Lütfen Firebase projenizin Firestore veritabanı kurallarını aşağıdaki gibi güncelleyin:</p>
-                    <pre class="bg-gray-800 text-white p-2 rounded-md mt-2 text-xs"><code>rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Öğretmenlerin kullanıcı listesini okumasına izin ver
-    match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth.uid == userId;
-    }
-    // Öğrencilerin kendi durumlarını okumasına/yazmasına izin ver
-    match /studentStates/{userId} {
-      allow read, write: if request.auth.uid == userId;
-    }
-  }
-}</code></pre>
-                </div>
-            `;
-        } else {
-            contentContainer.innerHTML = `<p class="text-center text-red-500 py-4">Öğretmen paneli yüklenirken bir hata oluştu.</p>`;
-        }
-    } finally {
-        showLoader(false);
-    }
+    };
+    
+    const dashboardHtml = `
+        <div class="w-full max-w-5xl mx-auto animate-fade-in-up">
+            <div class="text-center mb-6">
+                <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Öğretmen Paneli</h2>
+            </div>
+            <div class="flex gap-2 p-1 bg-amber-100 rounded-xl mb-6">
+                <button data-action="teacher-tab" data-tab="requests" class="teacher-tab-button w-full p-3 font-semibold text-lg rounded-lg ${initialTab === 'requests' ? 'active' : ''}">İstekler</button>
+                <button data-action="teacher-tab" data-tab="simulations" class="teacher-tab-button w-full p-3 font-semibold text-lg rounded-lg ${initialTab === 'simulations' ? 'active' : ''}">Öğrenciler</button>
+                <button data-action="teacher-tab" data-tab="settings" class="teacher-tab-button w-full p-3 font-semibold text-lg rounded-lg ${initialTab === 'settings' ? 'active' : ''}">API Ayarları</button>
+            </div>
+            <div id="teacher-dashboard-content" class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4 min-h-[20rem]">
+                ${await renderTabContent(initialTab)}
+            </div>
+        </div>
+        <style>
+            .teacher-tab-button.active {
+                background-color: white;
+                color: var(--teacher-color);
+                box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            }
+        </style>
+    `;
+    renderDashboard(dashboardHtml);
+    showLoader(false);
 }
 
 
@@ -337,21 +314,14 @@ async function handleGlobalClick(e: MouseEvent) {
     const actionData = (actionTarget as HTMLElement).dataset;
 
     switch (action) {
-        // --- UI View Toggles ---
+        // --- Login UI ---
         case 'show-register-view':
-            document.getElementById('login-view')?.classList.add('hidden');
-            document.getElementById('teacher-login-view')?.classList.add('hidden');
-            document.getElementById('register-view')?.classList.remove('hidden');
+            document.getElementById('student-login-view')?.classList.add('hidden');
+            document.getElementById('student-register-view')?.classList.remove('hidden');
             return;
         case 'show-login-view':
-             document.getElementById('register-view')?.classList.add('hidden');
-             document.getElementById('teacher-login-view')?.classList.add('hidden');
-             document.getElementById('login-view')?.classList.remove('hidden');
-            return;
-        case 'show-teacher-login-view':
-             document.getElementById('login-view')?.classList.add('hidden');
-             document.getElementById('register-view')?.classList.add('hidden');
-             document.getElementById('teacher-login-view')?.classList.remove('hidden');
+             document.getElementById('student-register-view')?.classList.add('hidden');
+             document.getElementById('student-login-view')?.classList.remove('hidden');
             return;
         case 'close-modal':
             hideModal(actionData.modal as 'rationale' | 'summary');
@@ -362,27 +332,40 @@ async function handleGlobalClick(e: MouseEvent) {
         case 'register': await handleRegister(); break;
         case 'teacher-login': handleTeacherLogin(); break;
         case 'logout': await handleLogout(); break;
-        
-        // --- Page Navigation ---
-        case 'populate-student-dashboard': await populateStudentDashboard(); break;
-        case 'populate-problem-selection': populateProblemSelection(); break;
-        case 'populate-teacher-dashboard': await populateTeacherDashboard(actionData.tab); break;
 
         // --- Teacher Actions ---
+        case 'teacher-tab':
+            const tab = actionData.tab!;
+            document.querySelectorAll('.teacher-tab-button').forEach(btn => btn.classList.remove('active'));
+            actionTarget.classList.add('active');
+            const contentContainer = document.getElementById('teacher-dashboard-content')!;
+            contentContainer.innerHTML = `<div class="h-32 flex items-center justify-center"><div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] text-[var(--teacher-color)] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status"></div></div>`;
+            const tabContent = await (populateTeacherDashboard as any).renderTabContent(tab); // Re-render content
+            contentContainer.innerHTML = tabContent;
+            break;
         case 'approve-user':
             showLoader(true);
             await fb.updateUserStatus(actionData.userId!, 'approved');
             showNotification('Öğrenci onaylandı.');
-            await populateTeacherDashboard('requests');
+            await populateTeacherDashboard('requests'); // Refresh
             break;
         case 'reject-user':
             showLoader(true);
             await fb.updateUserStatus(actionData.userId!, 'rejected');
             showNotification('Öğrenci reddedildi.');
-            await populateTeacherDashboard('requests');
+            await populateTeacherDashboard('requests'); // Refresh
             break;
         case 'view-summary':
             await handleViewSummary(actionData.studentId!, actionData.studentName!);
+            break;
+        case 'save-api-keys':
+            showLoader(true);
+            const googleApiKey = (document.getElementById('google-api-key') as HTMLInputElement).value.trim();
+            const openaiApiKey = (document.getElementById('openai-api-key') as HTMLInputElement).value.trim();
+            await fb.saveApiKeys({ googleApiKey, openaiApiKey });
+            ai = null; // Reset AI client to force re-initialization with new key
+            showNotification('API Anahtarları başarıyla kaydedildi.');
+            showLoader(false);
             break;
     }
 }
@@ -393,12 +376,11 @@ async function handleLogin() {
     const password = (document.getElementById('password-input') as HTMLInputElement).value;
     if (!username || !password) {
         showLoginMessage('Kullanıcı adı ve şifre boş bırakılamaz.');
-        showLoader(false);
-        return;
+        showLoader(false); return;
     }
     try {
         await fb.loginUser(username, password);
-        // onAuthStateChanged will handle UI changes
+        // onAuthStateChanged will handle UI changes after successful login
     } catch (error) {
         console.error("Login error:", error);
         showLoginMessage('Geçersiz kullanıcı adı veya şifre.');
@@ -422,12 +404,11 @@ async function handleRegister() {
     }
     try {
         await fb.registerUser(username, password);
-        document.getElementById('register-view')?.classList.add('hidden');
-        document.getElementById('login-view')?.classList.remove('hidden');
+        document.getElementById('student-register-view')?.classList.add('hidden');
+        document.getElementById('student-login-view')?.classList.remove('hidden');
         showLoginMessage('Kayıt başarılı! Hesabınız öğretmen onayını bekliyor.', 'success');
     } catch (error: any) {
         showError(error.code === 'auth/email-already-in-use' ? 'Bu kullanıcı adı zaten alınmış.' : 'Kayıt sırasında bir hata oluştu.');
-        console.error("Registration error:", error);
     } finally {
         showLoader(false);
     }
@@ -439,7 +420,9 @@ function handleTeacherLogin() {
     const errorDiv = document.getElementById('teacher-login-error')!;
     if (password === TEACHER_PASSWORD) {
         sessionStorage.setItem(TEACHER_SESSION_KEY, 'true');
-        location.reload();
+        userInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">Öğretmen Hesabı</span>`;
+        userInfo.classList.remove('hidden');
+        populateTeacherDashboard();
     } else {
         errorDiv.textContent = 'Geçersiz yönetici şifresi.';
         errorDiv.classList.remove('hidden');
@@ -451,17 +434,23 @@ async function handleLogout() {
     showLoader(true);
     const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
     if (isTeacher) {
-        sessionStorage.removeItem(TEACHER_SESSION_KEY);
-        location.reload();
+        resetToLoginScreen();
     } else {
         await fb.logoutUser();
-        // onAuthStateChanged will show login screen
+        // onAuthStateChanged will call resetToLoginScreen
     }
+    showLoader(false);
 }
 
 async function handleViewSummary(studentId: string, studentName: string) {
     showLoader(true);
     try {
+        const localAi = await getAiClient();
+        if (!localAi) {
+            showNotification('AI istemcisi başlatılamadı. API anahtarını kontrol edin.', 5000, 'error');
+            return;
+        }
+
         const state = await loadState(studentId);
         if (!state || !state.completedSimulations || state.completedSimulations.length === 0) {
             showNotification(`${studentName} için özetlenecek tamamlanmış simülasyon bulunmuyor.`, 4000, 'error');
@@ -475,7 +464,7 @@ async function handleViewSummary(studentId: string, studentName: string) {
 
         const request = { model: "gemini-2.5-flash", contents: formattedHistory, config: { systemInstruction: studentSummarySystemInstruction, responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { overallPerformanceSummary: { type: Type.STRING }, recurringStrengths: { type: Type.ARRAY, items: { type: Type.STRING } }, patternsForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } }, actionableSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } }, } } } };
 
-        const response = await ai.models.generateContent(request);
+        const response = await localAi.models.generateContent(request);
         const summaryData = JSON.parse(response.text);
 
         const summaryHtml = `
@@ -487,7 +476,7 @@ async function handleViewSummary(studentId: string, studentName: string) {
         showModal('summary', studentName, summaryHtml);
     } catch (error) {
         console.error("Error generating student summary:", error);
-        showNotification('AI özeti oluşturulurken bir hata oluştu.', 4000, 'error');
+        showNotification('AI özeti oluşturulurken bir hata oluştu. API anahtarı geçerli mi?', 5000, 'error');
     } finally {
         showLoader(false);
     }
@@ -502,24 +491,22 @@ async function handleAuthState(user: any) {
             if (userData && userData.status === 'approved') {
                 currentUserId = user.uid;
                 currentStudentName = userData.username;
-                studentInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
-                studentInfo.classList.remove('hidden');
+                userInfo.innerHTML = `<span class="material-symbols-outlined">person</span><span class="font-semibold">${currentStudentName}</span>`;
+                userInfo.classList.remove('hidden');
                 await populateStudentDashboard();
             } else {
                 await fb.logoutUser(); 
                 const message = userData?.status === 'pending' ? 'Hesabınız öğretmen onayını bekliyor.' : 'Hesabınız reddedildi veya geçersiz.';
                 showLoginMessage(message);
-                populateLoginScreen();
+                resetToLoginScreen();
             }
         } else {
-            currentUserId = '';
-            currentStudentName = '';
-            populateLoginScreen();
+            resetToLoginScreen();
         }
     } catch (error) {
         console.error("Auth state error:", error);
         showLoginMessage("Giriş sırasında bir hata oluştu. Lütfen tekrar deneyin.");
-        populateLoginScreen();
+        resetToLoginScreen();
     } finally {
         showLoader(false);
     }
@@ -528,18 +515,18 @@ async function handleAuthState(user: any) {
 // --- App Initialization ---
 function initializeApp() {
     if (fb.firebaseConfig.apiKey === "YOUR_API_KEY" || !fb.firebaseConfig.apiKey) {
-        document.querySelector('.layout-container')?.classList.add('hidden');
+        document.querySelector('#login-container')?.classList.add('hidden');
         configWarningOverlay.classList.remove('hidden');
         return;
     }
 
     document.body.addEventListener('click', handleGlobalClick);
 
-    if (sessionStorage.getItem(TEACHER_SESSION_KEY)) {
-        currentStudentName = 'Öğretmen Hesabı';
-        studentInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">${currentStudentName}</span>`;
-        studentInfo.classList.remove('hidden');
-        populateTeacherDashboard(activeTeacherTab);
+    const isTeacher = sessionStorage.getItem(TEACHER_SESSION_KEY);
+    if (isTeacher) {
+        userInfo.innerHTML = `<span class="material-symbols-outlined text-amber-600">school</span><span class="font-semibold text-gray-800">Öğretmen Hesabı</span>`;
+        userInfo.classList.remove('hidden');
+        populateTeacherDashboard();
     } else {
         fb.onAuthStateChanged(handleAuthState);
     }
