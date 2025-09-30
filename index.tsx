@@ -219,64 +219,63 @@ async function populateStudentDashboard() {
     }
 }
 
+async function renderTeacherTabContent(tab: string): Promise<string> {
+    try {
+        if (tab === 'requests') {
+            const pendingStudents = await fb.getPendingUsers();
+            if (pendingStudents.length === 0) return '<p class="text-center text-gray-500 py-4">Onay bekleyen öğrenci bulunmuyor.</p>';
+            return pendingStudents.map((user) => `
+                <div class="flex justify-between items-center p-4 bg-indigo-50 rounded-lg">
+                    <span class="font-semibold text-gray-800">${user.username}</span>
+                    <div class="flex gap-2">
+                        <button data-action="approve-user" data-user-id="${user.id}" class="bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 text-sm font-semibold">Onayla</button>
+                        <button data-action="reject-user" data-user-id="${user.id}" class="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 text-sm font-semibold">Reddet</button>
+                    </div>
+                </div>`).join('');
+        } else if (tab === 'simulations') {
+            const approvedStudents = await fb.getApprovedStudents();
+            if (approvedStudents.length === 0) return '<p class="text-center text-gray-500 py-8 col-span-full">Henüz onaylanmış öğrenci bulunmuyor.</p>';
+            const studentCardsHtml = await Promise.all(approvedStudents.map(async (student) => {
+                const studentState = await loadState(student.id as string);
+                const completedCount = studentState.completedSimulations.length;
+                return `<div class="bg-white/80 p-5 rounded-xl shadow-lg">
+                            <h4 class="font-bold text-lg text-gray-800">${student.username}</h4>
+                            <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
+                            <div class="mt-4 flex gap-2">
+                                <button data-action="view-summary" data-student-id="${student.id}" data-student-name="${student.username}" class="flex-1 bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 text-sm font-semibold">AI Özet</button>
+                            </div>
+                        </div>`;
+            }));
+            return `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${studentCardsHtml.join('')}</div>`;
+        } else if (tab === 'settings') {
+             const keys = await fb.getApiKeys();
+             return `
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800 mb-2">API Anahtar Yönetimi</h3>
+                    <p class="text-sm text-gray-600 mb-4">AI özelliklerinin çalışması için API anahtarlarını buraya girin. Bu anahtarlar veritabanında saklanır.</p>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="google-api-key" class="block text-sm font-medium text-gray-700">Google AI (Gemini) API Anahtarı</label>
+                            <input type="password" id="google-api-key" value="${keys?.googleApiKey || ''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500">
+                        </div>
+                         <div>
+                            <label for="openai-api-key" class="block text-sm font-medium text-gray-700">OpenAI (ChatGPT) API Anahtarı (İsteğe Bağlı)</label>
+                            <input type="password" id="openai-api-key" value="${keys?.openaiApiKey || ''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500">
+                        </div>
+                        <button data-action="save-api-keys" class="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 font-semibold">Anahtarları Kaydet</button>
+                    </div>
+                </div>
+             `;
+        }
+        return '';
+    } catch(error) {
+         console.error(`Error rendering tab ${tab}:`, error);
+         return `<p class="text-center text-red-500 py-4">Bu sekme yüklenirken bir hata oluştu.</p>`;
+    }
+}
+
 async function populateTeacherDashboard(initialTab = 'requests') {
     showLoader(true);
-
-    const renderTabContent = async (tab: string): Promise<string> => {
-        try {
-            if (tab === 'requests') {
-                const pendingStudents = await fb.getPendingUsers();
-                if (pendingStudents.length === 0) return '<p class="text-center text-gray-500 py-4">Onay bekleyen öğrenci bulunmuyor.</p>';
-                return pendingStudents.map((user) => `
-                    <div class="flex justify-between items-center p-4 bg-indigo-50 rounded-lg">
-                        <span class="font-semibold text-gray-800">${user.username}</span>
-                        <div class="flex gap-2">
-                            <button data-action="approve-user" data-user-id="${user.id}" class="bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 text-sm font-semibold">Onayla</button>
-                            <button data-action="reject-user" data-user-id="${user.id}" class="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 text-sm font-semibold">Reddet</button>
-                        </div>
-                    </div>`).join('');
-            } else if (tab === 'simulations') {
-                const approvedStudents = await fb.getApprovedStudents();
-                if (approvedStudents.length === 0) return '<p class="text-center text-gray-500 py-8 col-span-full">Henüz onaylanmış öğrenci bulunmuyor.</p>';
-                const studentCardsHtml = await Promise.all(approvedStudents.map(async (student) => {
-                    const studentState = await loadState(student.id as string);
-                    const completedCount = studentState.completedSimulations.length;
-                    return `<div class="bg-white/80 p-5 rounded-xl shadow-lg">
-                                <h4 class="font-bold text-lg text-gray-800">${student.username}</h4>
-                                <p class="text-gray-600 text-sm">${completedCount} seans tamamladı.</p>
-                                <div class="mt-4 flex gap-2">
-                                    <button data-action="view-summary" data-student-id="${student.id}" data-student-name="${student.username}" class="flex-1 bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 text-sm font-semibold">AI Özet</button>
-                                </div>
-                            </div>`;
-                }));
-                return `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${studentCardsHtml.join('')}</div>`;
-            } else if (tab === 'settings') {
-                 const keys = await fb.getApiKeys();
-                 return `
-                    <div>
-                        <h3 class="text-lg font-bold text-gray-800 mb-2">API Anahtar Yönetimi</h3>
-                        <p class="text-sm text-gray-600 mb-4">AI özelliklerinin çalışması için API anahtarlarını buraya girin. Bu anahtarlar veritabanında saklanır.</p>
-                        <div class="space-y-4">
-                            <div>
-                                <label for="google-api-key" class="block text-sm font-medium text-gray-700">Google AI (Gemini) API Anahtarı</label>
-                                <input type="password" id="google-api-key" value="${keys?.googleApiKey || ''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500">
-                            </div>
-                             <div>
-                                <label for="openai-api-key" class="block text-sm font-medium text-gray-700">OpenAI (ChatGPT) API Anahtarı (İsteğe Bağlı)</label>
-                                <input type="password" id="openai-api-key" value="${keys?.openaiApiKey || ''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500">
-                            </div>
-                            <button data-action="save-api-keys" class="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 font-semibold">Anahtarları Kaydet</button>
-                        </div>
-                    </div>
-                 `;
-            }
-            return '';
-        } catch(error) {
-             console.error(`Error rendering tab ${tab}:`, error);
-             return `<p class="text-center text-red-500 py-4">Bu sekme yüklenirken bir hata oluştu.</p>`;
-        }
-    };
-    
     const dashboardHtml = `
         <div class="w-full max-w-5xl mx-auto animate-fade-in-up">
             <div class="text-center mb-6">
@@ -288,7 +287,7 @@ async function populateTeacherDashboard(initialTab = 'requests') {
                 <button data-action="teacher-tab" data-tab="settings" class="teacher-tab-button w-full p-3 font-semibold text-lg rounded-lg ${initialTab === 'settings' ? 'active' : ''}">API Ayarları</button>
             </div>
             <div id="teacher-dashboard-content" class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4 min-h-[20rem]">
-                ${await renderTabContent(initialTab)}
+                ${await renderTeacherTabContent(initialTab)}
             </div>
         </div>
         <style>
@@ -340,7 +339,7 @@ async function handleGlobalClick(e: MouseEvent) {
             actionTarget.classList.add('active');
             const contentContainer = document.getElementById('teacher-dashboard-content')!;
             contentContainer.innerHTML = `<div class="h-32 flex items-center justify-center"><div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] text-[var(--teacher-color)] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status"></div></div>`;
-            const tabContent = await (populateTeacherDashboard as any).renderTabContent(tab); // Re-render content
+            const tabContent = await renderTeacherTabContent(tab); // Re-render content
             contentContainer.innerHTML = tabContent;
             break;
         case 'approve-user':
