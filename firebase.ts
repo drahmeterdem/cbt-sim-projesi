@@ -13,8 +13,8 @@ declare const firebase: any;
 // #                                                                           #
 // #############################################################################
 
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 export const firebaseConfig = {
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
   apiKey: "AIzaSyBMOhPCumWJncjfch4GhdPEnwO03c_8o5E",
   authDomain: "cbt-sim-projesi.firebaseapp.com",
   projectId: "cbt-sim-projesi",
@@ -22,7 +22,6 @@ export const firebaseConfig = {
   messagingSenderId: "869396190469",
   appId: "1:869396190469:web:c6db6adefbd2c17e86d36c",
   measurementId: "G-9S9PYC74LR"
-};
 };
 
 // Initialize Firebase
