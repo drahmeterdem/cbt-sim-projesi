@@ -14,7 +14,7 @@ declare const firebase: any;
 // #############################################################################
 
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyBMOhPCumWJncjfch4GhdPEnwO03c_8o5E",
   authDomain: "cbt-sim-projesi.firebaseapp.com",
   projectId: "cbt-sim-projesi",
