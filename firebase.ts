@@ -13,7 +13,8 @@ declare const firebase: any;
 // #                                                                           #
 // #############################################################################
 
-export const firebaseConfig = {
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
   apiKey: "AIzaSyBMOhPCumWJncjfch4GhdPEnwO03c_8o5E",
   authDomain: "cbt-sim-projesi.firebaseapp.com",
   projectId: "cbt-sim-projesi",
@@ -21,6 +22,7 @@ export const firebaseConfig = {
   messagingSenderId: "869396190469",
   appId: "1:869396190469:web:c6db6adefbd2c17e86d36c",
   measurementId: "G-9S9PYC74LR"
+};
 };
 
 // Initialize Firebase
@@ -134,4 +136,23 @@ export async function getApprovedStudents(): Promise<any[]> {
  */
 export async function updateUserStatus(userId: string, status: 'approved' | 'rejected'): Promise<void> {
     await db.collection('users').doc(userId).update({ status });
+}
+
+/**
+ * Saves API keys to a dedicated settings document in Firestore.
+ */
+export async function saveApiKeys(keys: { googleApiKey?: string; openaiApiKey?: string }): Promise<void> {
+    // Use a specific document ID for easy retrieval
+    await db.collection('settings').doc('apiKeys').set(keys, { merge: true });
+}
+
+/**
+ * Retrieves API keys from the settings document in Firestore.
+ */
+export async function getApiKeys(): Promise<{ googleApiKey?: string; openaiApiKey?: string } | null> {
+    const doc = await db.collection('settings').doc('apiKeys').get();
+    if (doc.exists) {
+        return doc.data() as { googleApiKey?: string; openaiApiKey?: string };
+    }
+    return null;
 }
