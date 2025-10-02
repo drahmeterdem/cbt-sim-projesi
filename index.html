@@ -395,6 +395,7 @@
             <button data-tab="analytics" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Sınıf Analitiği</button>
             <button data-tab="builder" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Senaryo Oluşturucu</button>
             <button data-tab="library" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Kaynak Kütüphanesi</button>
+            <button data-tab="settings" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Ayarlar</button>
         </nav>
     </div>
     <div id="teacher-content-container" class="transition-opacity duration-300">
@@ -411,6 +412,7 @@
         <div id="analytics-content" class="teacher-content hidden p-6 bg-white/70 rounded-2xl shadow-xl"></div>
         <div id="builder-content" class="teacher-content hidden"></div>
         <div id="library-content" class="teacher-content hidden"></div>
+        <div id="settings-content" class="teacher-content hidden"></div>
     </div>
 </div>
 
@@ -511,26 +513,6 @@
 </div>
 </div>
 <!-- Modals -->
-<div id="api-key-modal" class="modal hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full relative p-8 animate-fade-in-up">
-        <div class="flex items-center gap-3 mb-4">
-            <span class="material-symbols-outlined text-4xl text-[var(--teacher-color)]">manage_accounts</span>
-            <div>
-                <h3 class="text-2xl font-bold text-gray-800">Öğretmen Kurulumu: API Anahtarı</h3>
-                <p class="text-gray-500">Sistemi etkinleştirmek için Gemini API anahtarınızı girin.</p>
-            </div>
-        </div>
-        <div class="mt-6 space-y-2">
-            <label for="api-key-input" class="block text-sm font-medium text-gray-700">API Anahtarınız</label>
-            <input type="password" id="api-key-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-lg p-3 transition-shadow" placeholder="•••••••••••••••••••••••••••••••">
-            <p class="text-xs text-gray-500">Anahtarınız bu tarayıcıya kaydedilecek ve tüm öğrenci oturumları için kullanılacaktır. Kimseyle paylaşılmaz.</p>
-        </div>
-        <button id="save-api-key-button" class="mt-6 w-full flex items-center justify-center rounded-lg h-14 px-8 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 text-lg shadow-lg hover:shadow-amber-300">
-            <span>Kaydet ve Sistemi Etkinleştir</span>
-        </button>
-    </div>
-</div>
-
 <div id="rationale-modal" class="modal hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full relative p-6 animate-fade-in-up">
         <button id="close-modal-button" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 transition-colors">
