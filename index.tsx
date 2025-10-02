@@ -139,6 +139,7 @@ const teacherDashboard = {
         analytics: document.getElementById('analytics-content')!,
         builder: document.getElementById('builder-content')!,
         library: document.getElementById('library-content')!,
+        settings: document.getElementById('settings-content')!,
     }
 };
 const requestsListContainer = document.getElementById('requests-list-container')!;
@@ -163,11 +164,6 @@ const teacherReview = {
 
 
 // Modals
-const apiKeyModal = {
-    container: document.getElementById('api-key-modal')!,
-    input: document.getElementById('api-key-input') as HTMLInputElement,
-    saveButton: document.getElementById('save-api-key-button')!,
-};
 const rationaleModal = {
     container: document.getElementById('rationale-modal')!,
     title: document.getElementById('modal-title')!,
@@ -219,11 +215,21 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 3.  **patternsForImprovement:** Öğrencinin tekrar eden zorlukları, geliştirmesi gereken beceriler veya kaçındığı müdahaleler veya eğilimler. Maddeler halinde listele.
 4.  **suggestedFocusAreas:** Gelecek simülasyonlar için odaklanması önerilen belirli 2-3 alan. Maddeler halinde listele.`;
 
-// --- Database (LocalStorage) ---
+// --- Database (LocalStorage) Helpers ---
 
-function getUsers() {
-    const users = localStorage.getItem(USERS_KEY);
-    return users ? JSON.parse(users) : [];
+function safeJsonParse<T>(key: string, defaultValue: T): T {
+    try {
+        const item = localStorage.getItem(key);
+        if (!item) return defaultValue;
+        return JSON.parse(item) as T;
+    } catch (error) {
+        console.warn(`Error parsing JSON from localStorage key "${key}", returning default value.`, error);
+        return defaultValue;
+    }
+}
+
+function getUsers(): any[] {
+    return safeJsonParse(USERS_KEY, []);
 }
 
 function saveUsers(users: any[]) {
@@ -256,29 +262,27 @@ const resources: Resource[] = [
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
-    setupApiKeyModalListener();
     checkSessionAndRoute();
 });
 
 function checkSessionAndRoute() {
-    const session = localStorage.getItem(SESSION_KEY);
+    const session = safeJsonParse(SESSION_KEY, null);
     if (session) {
-        const { userId, userType, studentName } = JSON.parse(session);
+        const { userId, userType, studentName } = session;
         currentUserId = userId;
+
+        const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+        if (savedApiKey) {
+            initializeAiClient(savedApiKey);
+        }
+
         if (userType === 'student') {
             currentStudentName = studentName;
-            // Attempt to initialize AI silently for the student.
-            const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
-            if (savedApiKey) {
-                try {
-                    ai = new GoogleGenAI({ apiKey: savedApiKey });
-                } catch (e) {
-                    console.warn("Could not initialize AI for student. Key might be invalid.");
-                }
-            }
             showScreen('studentDashboard');
         } else if (userType === 'teacher') {
-            initializeAiClient(); // This will check for a key and show the modal if needed.
+            if (!savedApiKey) {
+                activeTeacherTab = 'settings'; // Force teacher to settings if no key
+            }
             showScreen('teacherDashboard');
         }
     } else {
@@ -287,27 +291,22 @@ function checkSessionAndRoute() {
 }
 
 
-function setupApiKeyModalListener() {
-    apiKeyModal.saveButton.addEventListener('click', () => {
-        const key = apiKeyModal.input.value.trim();
-        if (!key) {
-            showNotification("Lütfen geçerli bir API anahtarı girin.", "error");
-            return;
-        }
-
-        try {
-            // Test the key by initializing the client
-            const testAi = new GoogleGenAI({ apiKey: key });
-            ai = testAi; // If it doesn't throw, assign it to the global client
-            localStorage.setItem(API_KEY_STORAGE_KEY, key);
-            apiKeyModal.container.classList.add('hidden');
-            showNotification("API anahtarı başarıyla yapılandırıldı. Sistem şimdi aktif.", "success");
-        } catch (error) {
-            console.error("Failed to initialize GoogleGenAI with provided key:", error);
-            ai = null; // Ensure AI client is null if initialization fails
-            showNotification("API anahtarı geçersiz. Lütfen kontrol edip tekrar girin.", "error");
-        }
-    });
+function initializeAiClient(apiKey: string): boolean {
+    if (!apiKey) {
+        ai = null;
+        return false;
+    }
+    try {
+        ai = new GoogleGenAI({ apiKey });
+        localStorage.setItem(API_KEY_STORAGE_KEY, apiKey);
+        console.log("AI client initialized successfully.");
+        return true;
+    } catch (error) {
+        console.error("Failed to initialize GoogleGenAI with provided key:", error);
+        ai = null;
+        // Do not remove the key here, let the user decide in settings
+        return false;
+    }
 }
 
 
@@ -424,28 +423,6 @@ function setupEventListeners() {
 }
 
 // --- Authentication & User Management ---
-function initializeAiClient() {
-    if (ai) return true; // AI is already running
-
-    const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
-    if (savedApiKey) {
-        try {
-            ai = new GoogleGenAI({ apiKey: savedApiKey });
-            console.log("AI client initialized successfully from saved key.");
-            apiKeyModal.container.classList.add('hidden'); // Ensure modal is hidden if key is good
-            return true;
-        } catch (error) {
-            console.error("Saved API key is invalid, removing it.", error);
-            localStorage.removeItem(API_KEY_STORAGE_KEY);
-            ai = null; // Reset client
-        }
-    }
-    
-    // If we are here, we need the key. Show the modal for the teacher.
-    apiKeyModal.container.classList.remove('hidden');
-    return false; // AI is not ready
-}
-
 
 function toggleLoginViews(view: 'login' | 'register' | 'teacher') {
     loginView.classList.add('hidden');
@@ -532,7 +509,9 @@ function handleTeacherLogin() {
     if (password === TEACHER_PASSWORD) {
         currentUserId = 'teacher';
         localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: 'teacher', userType: 'teacher' }));
-        checkSessionAndRoute(); // Re-route to teacher dashboard
+        
+        // After setting session, re-route. It will handle API key checks.
+        checkSessionAndRoute();
     } else {
         teacherLoginError.textContent = "Geçersiz yönetici şifresi.";
         teacherLoginError.classList.remove('hidden');
@@ -900,8 +879,7 @@ function saveSessionProgress() {
 }
 
 function getSavedSession(userId: string) {
-    const saved = localStorage.getItem(`session_${userId}`);
-    return saved ? JSON.parse(saved) : null;
+    return safeJsonParse(`session_${userId}`, null);
 }
 
 function resumeSession() {
@@ -976,8 +954,7 @@ function completeSession() {
 }
 
 function getAllSessionsForStudent(userId: string) {
-    const history = localStorage.getItem(`history_${userId}`);
-    return history ? JSON.parse(history) : [];
+    return safeJsonParse(`history_${userId}`, []);
 }
 
 // --- Analysis Screen Logic ---
@@ -1087,8 +1064,7 @@ function handleSendAnalysisToTeacher() {
 }
 
 function getUploadedAnalyses() {
-    const uploads = localStorage.getItem('uploaded_analyses');
-    return uploads ? JSON.parse(uploads) : [];
+    return safeJsonParse('uploaded_analyses', []);
 }
 
 // --- Student-Teacher Communication ---
@@ -1113,8 +1089,7 @@ function handleStudentQuestion() {
 }
 
 function getAllQAs() {
-    const qas = localStorage.getItem('student_qas');
-    return qas ? JSON.parse(qas) : [];
+    return safeJsonParse('student_qas', []);
 }
 function getQAsForStudent(studentId: string) {
     return getAllQAs().filter((qa: any) => qa.studentId === studentId);
@@ -1399,6 +1374,50 @@ function renderRegistrationRequests() {
 }
 
 
+function renderSettingsTab() {
+    const currentKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+    const maskedKey = currentKey ? `•••••••••••••••••••••••••••••••${currentKey.slice(-4)}` : "Henüz ayarlanmadı.";
+    
+    teacherDashboard.contents.settings.innerHTML = `
+        <div class="bg-white/70 p-6 rounded-2xl shadow-xl max-w-2xl mx-auto">
+            <div class="flex items-center gap-3 mb-4">
+                <span class="material-symbols-outlined text-4xl text-[var(--teacher-color)]">settings</span>
+                <div>
+                    <h3 class="text-2xl font-bold text-gray-800">Sistem Ayarları</h3>
+                    <p class="text-gray-500">Yapay zeka sistemini yapılandırın.</p>
+                </div>
+            </div>
+            <div class="mt-6 border-t pt-6">
+                <label for="teacher-api-key-input" class="block text-sm font-medium text-gray-700">Gemini API Anahtarı</label>
+                <p class="text-xs text-gray-500 mb-2">Mevcut Anahtar: <span class="font-mono">${maskedKey}</span></p>
+                <input type="password" id="teacher-api-key-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-lg p-3 transition-shadow" placeholder="Yeni API anahtarını buraya girin...">
+                <p class="text-xs text-gray-500 mt-2">Anahtarınız bu tarayıcıya kaydedilecek ve tüm öğrenci oturumları için kullanılacaktır. Kimseyle paylaşılmaz.</p>
+                <button id="teacher-save-api-key-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 text-md shadow-md hover:shadow-lg">
+                    <span>API Anahtarını Kaydet</span>
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('teacher-save-api-key-button')!.addEventListener('click', () => {
+        const input = document.getElementById('teacher-api-key-input') as HTMLInputElement;
+        const newKey = input.value.trim();
+        if (!newKey) {
+            showNotification("Lütfen bir API anahtarı girin.", "error");
+            return;
+        }
+        
+        if (initializeAiClient(newKey)) {
+            showNotification("API anahtarı başarıyla güncellendi ve sistem aktif!", "success");
+            input.value = ""; // Clear the input
+            renderSettingsTab(); // Re-render to show the new masked key
+        } else {
+            showNotification("API anahtarı geçersiz. Lütfen kontrol edip tekrar girin.", "error");
+        }
+    });
+}
+
+
 function renderTeacherDashboard() {
     // This function will render the content based on the activeTeacherTab
     Object.values(teacherDashboard.contents).forEach(content => content.classList.add('hidden'));
@@ -1418,6 +1437,9 @@ function renderTeacherDashboard() {
     switch (activeTeacherTab) {
         case 'requests':
             renderRegistrationRequests();
+            break;
+        case 'settings':
+            renderSettingsTab();
             break;
         case 'simulations':
             // renderStudentSimulationsList();
