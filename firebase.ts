@@ -4,20 +4,32 @@ declare const firebase: any;
 
 let db: any = null;
 
+// Hardcoded Firebase configuration to automate database connection
+const firebaseConfig = {
+  apiKey: "AIzaSyBMOhPCumWJncjfch4GhdPEnwO03c_8o5E",
+  authDomain: "cbt-sim-projesi.firebaseapp.com",
+  projectId: "cbt-sim-projesi",
+  storageBucket: "cbt-sim-projesi.appspot.com",
+  messagingSenderId: "869396190469",
+  appId: "1:869396190469:web:c6db6adefbd2c17e86d36c",
+  measurementId: "G-9S9PYC74LR"
+};
+
+
 export function isDbConnected(): boolean {
     return db !== null;
 }
 
 /**
- * Initializes the Firebase application and Firestore database.
- * @param config - The Firebase configuration object from your project settings.
+ * Initializes the Firebase application and Firestore database using the hardcoded config.
+ * This function should be called once when the application starts.
  * @returns True if initialization is successful, false otherwise.
  */
-export function initializeFirebase(config: object): boolean {
+export function initializeFirebase(): boolean {
     try {
         // Avoid re-initializing the app
         if (firebase.apps.length === 0) {
-            firebase.initializeApp(config);
+            firebase.initializeApp(firebaseConfig);
         }
         db = firebase.firestore();
         console.log("Firebase and Firestore initialized successfully.");
@@ -39,7 +51,7 @@ export function initializeFirebase(config: object): boolean {
  */
 export async function setData(collectionPath: string, docId: string, data: any): Promise<void> {
     if (!db) throw new Error("Database not initialized.");
-    await db.collection(collectionPath).doc(docId).set(data);
+    await db.collection(collectionPath).doc(docId).set(data, { merge: true });
 }
 
 /**
@@ -100,19 +112,6 @@ export async function deleteData(collectionPath: string, docId: string): Promise
     await db.collection(collectionPath).doc(docId).delete();
 }
 
-/**
- * Adds a new document to a subcollection.
- * @param parentCollection - The path of the parent collection.
- * @param parentDocId - The ID of the parent document.
- * @param subcollection - The name of the subcollection.
- * @param data - The data for the new document.
- * @returns The ID of the newly created document.
- */
-export async function addDataToSubcollection(parentCollection: string, parentDocId: string, subcollection: string, data: any): Promise<string> {
-    if (!db) throw new Error("Database not initialized.");
-    const docRef = await db.collection(parentCollection).doc(parentDocId).collection(subcollection).add(data);
-    return docRef.id;
-}
 
 /**
  * Gets all documents from a subcollection.
@@ -139,4 +138,17 @@ export async function getSubcollection(parentCollection: string, parentDocId: st
 export async function setDataInSubcollection(parentCollection: string, parentDocId: string, subcollection: string, docId: string, data: any): Promise<void> {
     if (!db) throw new Error("Database not initialized.");
     await db.collection(parentCollection).doc(parentDocId).collection(subcollection).doc(docId).set(data);
+}
+
+/**
+ * Updates an existing document in a subcollection.
+ * @param parentCollection - The path of the parent collection.
+ * @param parentDocId - The ID of the parent document.
+ * @param subcollection - The name of the subcollection.
+ * @param docId - The ID of the document to update.
+ * @param data - An object containing the fields to update.
+ */
+export async function updateDataInSubcollection(parentCollection: string, parentDocId: string, subcollection: string, docId: string, data: any): Promise<void> {
+    if (!db) throw new Error("Database not initialized.");
+    await db.collection(parentCollection).doc(parentDocId).collection(subcollection).doc(docId).update(data);
 }
