@@ -1,5 +1,6 @@
 // --- Gemini AI Client and Type Imports ---
 import { GoogleGenAI, Type } from "@google/genai";
+import * as db from './firebase';
 
 // --- Type Definitions ---
 interface Scenario {
@@ -18,9 +19,11 @@ interface Resource {
     associatedScenarioIds: string[];
 }
 
-// --- Gemini AI Client Initialization ---
+// --- AI & DB Client Initialization ---
 let ai: GoogleGenAI | null = null;
+let isDbConnected: boolean = false;
 const API_KEY_STORAGE_KEY = 'gemini_api_key';
+const FIREBASE_CONFIG_KEY = 'firebase_config';
 
 
 // --- Global State & Constants ---
@@ -34,10 +37,7 @@ let activeTeacherTab: string = 'requests'; // Default to requests for teacher wo
 let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
 
 const TEACHER_PASSWORD = 'teacher3243';
-const USERS_KEY = 'cbt_sim_users_v2'; // v2 includes approval status
 const SESSION_KEY = 'cbt_sim_session_v1';
-const CUSTOM_SCENARIOS_KEY = 'cbt_custom_scenarios_v1';
-const RESOURCES_KEY = 'cbt_resources_v1';
 
 
 // --- DOM Element References ---
@@ -234,44 +234,6 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 3.  **patternsForImprovement:** Öğrencinin tekrar eden zorlukları, geliştirmesi gereken beceriler veya kaçındığı müdahaleler veya eğilimler. Maddeler halinde listele.
 4.  **suggestedFocusAreas:** Gelecek simülasyonlar için odaklanması önerilen belirli 2-3 alan. Maddeler halinde listele.`;
 
-// --- Database (LocalStorage) Helpers ---
-
-function safeJsonParse<T>(key: string, defaultValue: T): T {
-    try {
-        const item = localStorage.getItem(key);
-        if (!item || item === 'undefined') {
-            return defaultValue;
-        }
-        const parsed = JSON.parse(item);
-        if (Array.isArray(defaultValue) && !Array.isArray(parsed)) {
-            console.warn(`Data for key "${key}" was expected to be an array but was not. Clearing corrupted data.`, parsed);
-            localStorage.removeItem(key);
-            return defaultValue;
-        }
-        if (defaultValue !== null && typeof defaultValue === 'object' && !Array.isArray(defaultValue)) {
-            if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                console.warn(`Data for key "${key}" was expected to be an object but was not. Clearing corrupted data.`, parsed);
-                localStorage.removeItem(key);
-                return defaultValue;
-            }
-        }
-        return parsed as T;
-    } catch (error) {
-        console.warn(`Error parsing JSON from localStorage key "${key}". Clearing corrupted data.`, error);
-        localStorage.removeItem(key);
-        return defaultValue;
-    }
-}
-
-
-function getUsers(): any[] { return safeJsonParse(USERS_KEY, []); }
-function saveUsers(users: any[]) { localStorage.setItem(USERS_KEY, JSON.stringify(users)); }
-function getCustomScenarios(): Scenario[] { return safeJsonParse(CUSTOM_SCENARIOS_KEY, []); }
-function saveCustomScenarios(scenarios: Scenario[]) { localStorage.setItem(CUSTOM_SCENARIOS_KEY, JSON.stringify(scenarios)); }
-function getResources(): Resource[] { return safeJsonParse(RESOURCES_KEY, []); }
-function saveResources(resources: Resource[]) { localStorage.setItem(RESOURCES_KEY, JSON.stringify(resources)); }
-
-
 // --- Core App Logic ---
 
 let chatHistory: any[] = [];
@@ -288,15 +250,6 @@ const scenarios: Scenario[] = [
     { id: '6', title: 'Genel Kaygı Bozukluğu', description: 'günlük hayattaki birçok farklı konu (iş, sağlık, aile) hakkında sürekli ve kontrol edilemeyen bir endişe hali yaşıyor.', profile: 'Elif, 40 yaşında bir öğretmen. "Ya olursa?" diye başlayan felaket senaryoları zihninde sürekli dönüyor. Bu endişeler nedeniyle geceleri uyumakta zorlanıyor ve sürekli bir gerginlik hissediyor. En kötü olasılığa odaklanma eğiliminde.', isCustom: false },
 ];
 
-let allResources: Resource[] = getResources();
-if (allResources.length === 0) {
-    allResources = [
-        { id: 'r1', title: 'Sosyal Kaygı Nedir?', url: '#', type: 'article', associatedScenarioIds: ['1'] },
-        { id: 'r2', title: 'Ertelemeyle Başa Çıkma Yolları', url: '#', type: 'video', associatedScenarioIds: ['2'] },
-        { id: 'r3', title: 'Panik Atak Anında Nefes Egzersizleri', url: '#', type: 'pdf', associatedScenarioIds: ['3'] },
-    ];
-    saveResources(allResources);
-}
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -304,21 +257,39 @@ document.addEventListener('DOMContentLoaded', () => {
     checkSessionAndRoute();
 });
 
-function checkSessionAndRoute() {
+function safeJsonParse<T>(key: string, defaultValue: T): T {
+    try {
+        const item = localStorage.getItem(key);
+        if (!item || item === 'undefined') return defaultValue;
+        return JSON.parse(item) as T;
+    } catch (error) {
+        console.warn(`Error parsing JSON from localStorage key "${key}". Returning default.`, error);
+        return defaultValue;
+    }
+}
+
+async function checkSessionAndRoute() {
+    // 1. Initialize services (AI and DB)
+    const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+    if (savedApiKey) initializeAiClient(savedApiKey);
+
+    const savedDbConfig = safeJsonParse(FIREBASE_CONFIG_KEY, null);
+    if (savedDbConfig) isDbConnected = db.initializeFirebase(savedDbConfig);
+
+    // 2. Check for an active session
     const session = safeJsonParse(SESSION_KEY, null);
     if (session) {
         const { userId, userType, studentName } = session;
         currentUserId = userId;
-        const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
-        if (savedApiKey) {
-            initializeAiClient(savedApiKey);
-        }
+        
         if (userType === 'student') {
             currentStudentName = studentName;
             showScreen('studentDashboard');
         } else if (userType === 'teacher') {
-            if (!ai) {
+            // If DB is not set up, force teacher to settings tab
+            if (!isDbConnected) {
                 activeTeacherTab = 'settings';
+                showNotification("Lütfen çok kullanıcılı erişim için veritabanını yapılandırın.", "info");
             }
             showScreen('teacherDashboard');
         }
@@ -434,7 +405,7 @@ function setupEventListeners() {
     teacherQASystem.button.addEventListener('click', handleStudentQuestion);
 
     // Event Delegation
-    document.body.addEventListener('click', (e) => {
+    document.body.addEventListener('click', async (e) => {
         const target = e.target as HTMLElement;
         const approveButton = target.closest<HTMLButtonElement>('.approve-button');
         const viewSessionsButton = target.closest<HTMLButtonElement>('.view-sessions-button');
@@ -442,11 +413,11 @@ function setupEventListeners() {
         const reviewUploadButton = target.closest<HTMLButtonElement>('.review-upload-button');
         const replyQuestionButton = target.closest<HTMLButtonElement>('.reply-question-button');
 
-        if (approveButton) handleApproveRequest(approveButton.dataset.username!);
-        if (viewSessionsButton) showStudentSessionReviewList(viewSessionsButton.dataset.studentid!);
-        if (reviewSessionButton) showSessionDetailReview(reviewSessionButton.dataset.studentid!, reviewSessionButton.dataset.sessionid!);
-        if (reviewUploadButton) showUploadReviewDetail(reviewUploadButton.dataset.uploadid!);
-        if (replyQuestionButton) handleReplyToQuestion(replyQuestionButton.dataset.questionid!);
+        if (approveButton) await handleApproveRequest(approveButton.dataset.username!);
+        if (viewSessionsButton) await showStudentSessionReviewList(viewSessionsButton.dataset.studentid!);
+        if (reviewSessionButton) await showSessionDetailReview(reviewSessionButton.dataset.studentid!, reviewSessionButton.dataset.sessionid!);
+        if (reviewUploadButton) await showUploadReviewDetail(reviewUploadButton.dataset.uploadid!);
+        if (replyQuestionButton) await handleReplyToQuestion(replyQuestionButton.dataset.questionid!);
     });
 }
 
@@ -466,26 +437,29 @@ function toggleLoginViews(view: 'login' | 'register' | 'teacher') {
     if (view === 'teacher') teacherLoginView.classList.remove('hidden');
 }
 
-function handleLogin() {
+async function handleLogin() {
     const username = usernameInput.value.trim();
     const password = passwordInput.value.trim();
     loginError.classList.add('hidden');
 
+    if (!isDbConnected) {
+        showNotification("Veritabanı bağlantısı yok. Lütfen öğretmenin sistemi yapılandırmasını sağlayın.", "error");
+        return;
+    }
     if (!username || !password) {
         loginError.textContent = "Kullanıcı adı ve şifre gereklidir.";
         loginError.classList.remove('hidden');
         return;
     }
 
-    const users = getUsers();
-    const user = users.find((u: any) => u.username === username && u.password === password);
+    const user = await db.getData('users', username);
 
-    if (user) {
+    if (user && user.password === password) {
         if (user.approved) {
             currentUserId = user.username;
             currentStudentName = user.username;
             localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.username, studentName: user.username, userType: 'student' }));
-            checkSessionAndRoute();
+            await checkSessionAndRoute();
         } else {
             loginError.textContent = "Hesabınız henüz öğretmen tarafından onaylanmadı.";
             loginError.classList.remove('hidden');
@@ -496,13 +470,17 @@ function handleLogin() {
     }
 }
 
-function handleRegister() {
+async function handleRegister() {
     const username = registerUsernameInput.value.trim();
     const password = registerPasswordInput.value.trim();
     const confirmPassword = registerConfirmPasswordInput.value.trim();
     registerError.classList.add('hidden');
     registerSuccess.classList.add('hidden');
 
+    if (!isDbConnected) {
+        showNotification("Veritabanı bağlantısı yok. Lütfen öğretmenin sistemi yapılandırmasını sağlayın.", "error");
+        return;
+    }
     if (!username || !password || !confirmPassword) {
         registerError.textContent = "Tüm alanlar zorunludur.";
         registerError.classList.remove('hidden');
@@ -513,15 +491,16 @@ function handleRegister() {
         registerError.classList.remove('hidden');
         return;
     }
-    const users = getUsers();
-    if (users.some((u: any) => u.username === username)) {
+    
+    const existingUser = await db.getData('users', username);
+    if (existingUser) {
         registerError.textContent = "Bu kullanıcı adı zaten alınmış.";
         registerError.classList.remove('hidden');
         return;
     }
 
-    users.push({ username, password, approved: false });
-    saveUsers(users);
+    const newUser = { username, password, approved: false };
+    await db.setData('users', username, newUser);
 
     registerSuccess.textContent = "Kayıt başarılı! Hesabınız öğretmen tarafından onaylandıktan sonra giriş yapabilirsiniz.";
     registerSuccess.classList.remove('hidden');
@@ -530,14 +509,14 @@ function handleRegister() {
     registerConfirmPasswordInput.value = '';
 }
 
-function handleTeacherLogin() {
+async function handleTeacherLogin() {
     const password = teacherPasswordInput.value;
     teacherLoginError.classList.add('hidden');
 
     if (password === TEACHER_PASSWORD) {
         currentUserId = 'teacher';
         localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: 'teacher', userType: 'teacher' }));
-        checkSessionAndRoute();
+        await checkSessionAndRoute();
     } else {
         teacherLoginError.textContent = "Geçersiz yönetici şifresi.";
         teacherLoginError.classList.remove('hidden');
@@ -548,13 +527,13 @@ function logout() {
     localStorage.removeItem(SESSION_KEY);
     currentUserId = '';
     currentStudentName = '';
-    ai = null;
+    // Do not clear API or DB keys on logout, just the session
     window.location.reload();
 }
 
 
 // --- Problem Selection ---
-function renderProblemSelection() {
+async function renderProblemSelection() {
     const defaultContainer = document.getElementById('default-scenarios-container')!;
     defaultContainer.innerHTML = '';
     scenarios.filter(s => !s.isCustom).forEach(scenario => {
@@ -562,7 +541,7 @@ function renderProblemSelection() {
         defaultContainer.appendChild(card);
     });
 
-    const customScenarios = getCustomScenarios();
+    const customScenarios = isDbConnected ? await db.getCollection('customScenarios') : [];
     const customSection = document.getElementById('custom-scenarios-section')!;
     const customContainer = document.getElementById('custom-scenarios-container')!;
     if (customScenarios.length > 0) {
@@ -594,8 +573,11 @@ function createScenarioCard(scenario: Scenario): HTMLElement {
 // --- Simulation Logic ---
 function startSimulation(scenario: Scenario) {
     if (!ai) {
-        showNotification("Sistem aktif değil. Lütfen öğretmenin API anahtarını yapılandırmasını sağlayın.", "error");
+        showNotification("Yapay Zeka sistemi aktif değil. Lütfen öğretmenin API anahtarını yapılandırmasını sağlayın.", "error");
         return;
+    }
+    if (!isDbConnected) {
+        showNotification("Veritabanı bağlantısı yok. İlerlemeniz kaydedilemeyecek.", "info");
     }
 
     currentScenario = scenario;
@@ -664,7 +646,7 @@ function renderOptions(options: string[], rationale: string = "") {
 }
 
 async function handleOptionSelection(therapistResponse: string, rationale: string) {
-    handleTherapistResponse(therapistResponse, rationale);
+    await handleTherapistResponse(therapistResponse, rationale);
 }
 
 async function handleTherapistResponse(therapistResponse: string, rationale: string | null = null) {
@@ -718,18 +700,17 @@ function showRationaleModal(rationale: string) {
 
 
 // --- Student Dashboard Rendering ---
-function renderStudentDashboard() {
+async function renderStudentDashboard() {
     dashboardStudentName.textContent = currentStudentName;
-    renderContinueSessionCard();
-    renderProgressTracking();
-    renderCumulativeProgress();
-    renderAchievements();
-    renderRecommendations();
-    renderQACard();
+    await renderContinueSessionCard();
+    await renderCumulativeProgress();
+    renderAchievements(); // This can be made async if achievements are stored in DB
+    await renderRecommendations();
+    await renderQACard();
 }
 
-function renderContinueSessionCard() {
-    const savedSession = getSavedSession(currentUserId);
+async function renderContinueSessionCard() {
+    const savedSession = getSavedSession(); // Local session is temporary
     if (savedSession) {
         continueSessionCard.innerHTML = `
             <span class="material-symbols-outlined text-5xl text-[var(--primary-color)] mb-3">play_circle</span>
@@ -763,8 +744,12 @@ function renderProgressTracking() {
     }
 }
 
-function renderCumulativeProgress() {
-    const allSessions = getAllSessionsForStudent(currentUserId);
+async function renderCumulativeProgress() {
+    if (!isDbConnected) {
+        cumulativeProgress.card.classList.add('hidden');
+        return;
+    }
+    const allSessions = await getAllSessionsForStudent(currentUserId);
     if (allSessions.length > 0) {
         const allScores = allSessions.flatMap(s => s.scores);
         if (allScores.length > 0) {
@@ -814,15 +799,22 @@ function renderAchievements() {
     `;
 }
 
-function renderRecommendations() {
+async function renderRecommendations() {
+    if (!isDbConnected) {
+        recommendations.container.innerHTML = '<p class="text-gray-500 text-center">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        return;
+    }
     recommendations.container.innerHTML = '';
-    const uniqueScenarioIds = [...new Set(getAllSessionsForStudent(currentUserId).map(s => s.scenario.id))];
+    const allSessions = await getAllSessionsForStudent(currentUserId);
+    const uniqueScenarioIds = [...new Set(allSessions.map(s => s.scenario.id))];
+
     if (uniqueScenarioIds.length === 0) {
         recommendations.container.innerHTML = '<p class="text-gray-500 text-center">Simülasyonları tamamladıkça burada kişiselleştirilmiş kaynak önerileri göreceksiniz.</p>';
         return;
     }
     
-    const relevantResources = getResources().filter(r => r.associatedScenarioIds.some(id => uniqueScenarioIds.includes(id)));
+    const allResources = await db.getCollection('resources');
+    const relevantResources = allResources.filter(r => r.associatedScenarioIds.some((id: string) => uniqueScenarioIds.includes(id)));
     
     if (relevantResources.length > 0) {
          relevantResources.forEach(resource => {
@@ -843,8 +835,12 @@ function renderRecommendations() {
     }
 }
 
-function renderQACard() {
-    const qaHistory = getQAsForStudent(currentUserId);
+async function renderQACard() {
+    if (!isDbConnected) {
+        teacherQASystem.history.innerHTML = '<p class="text-center text-gray-500 text-sm">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        return;
+    }
+    const qaHistory = await getQAsForStudent(currentUserId);
     teacherQASystem.history.innerHTML = '';
     if (qaHistory.length === 0) {
         teacherQASystem.history.innerHTML = '<p class="text-center text-gray-500 text-sm">Henüz bir soru sormadınız. Öğretmeninize danışmak istediğiniz bir konu var mı?</p>';
@@ -862,9 +858,9 @@ function renderQACard() {
 
 
 // --- Session Progress Management ---
-function saveSessionProgress() {
+async function saveSessionProgress() {
     if (currentScenario && chatHistory.length > 0) {
-        completeSession(); // Move current progress to long-term history
+        await completeSession(); 
         showNotification("İlerlemeniz kalıcı olarak kaydedildi ve seans tamamlandı!", "success");
         setTimeout(() => showScreen('studentDashboard'), 1000);
     } else {
@@ -872,12 +868,13 @@ function saveSessionProgress() {
     }
 }
 
-function getSavedSession(userId: string) {
-    return safeJsonParse(`session_${userId}`, null);
+// Temporary session is saved locally for quick resume
+function getSavedSession() {
+    return safeJsonParse(`session_${currentUserId}`, null);
 }
 
 function resumeSession() {
-    const savedSession = getSavedSession(currentUserId);
+    const savedSession = getSavedSession();
     if (savedSession) {
         currentScenario = savedSession.scenario;
         chatHistory = savedSession.history;
@@ -923,11 +920,13 @@ function deleteSavedSession() {
     renderContinueSessionCard();
 }
 
-function completeSession() {
-    if (!currentScenario || chatHistory.length === 0) return;
-    const allSessions = getAllSessionsForStudent(currentUserId);
+async function completeSession() {
+    if (!currentScenario || chatHistory.length === 0 || !isDbConnected) {
+        if(!isDbConnected) showNotification("Veritabanı bağlantısı olmadığından seans kaydedilemedi.", "error");
+        return;
+    }
+
     const sessionData = {
-        id: `sess_${Date.now()}`,
         userId: currentUserId,
         scenario: currentScenario,
         history: chatHistory,
@@ -935,17 +934,20 @@ function completeSession() {
         timestamp: new Date().toISOString(),
         feedback: null
     };
-    allSessions.push(sessionData);
-    localStorage.setItem(`history_${currentUserId}`, JSON.stringify(allSessions));
 
+    const newId = `sess_${Date.now()}`;
+    await db.setDataInSubcollection('students', currentUserId, 'sessions', newId, sessionData);
+
+    // Clear local temporary session
     localStorage.removeItem(`session_${currentUserId}`);
     chatHistory = [];
     sessionScores = [];
     currentScenario = null;
 }
 
-function getAllSessionsForStudent(userId: string) {
-    return safeJsonParse(`history_${userId}`, []);
+async function getAllSessionsForStudent(userId: string): Promise<any[]> {
+    if (!isDbConnected) return [];
+    return await db.getSubcollection('students', userId, 'sessions');
 }
 
 // --- Analysis Screen Logic ---
@@ -1024,52 +1026,60 @@ function renderAnalysisOutput(data: any, container: HTMLElement = analysis.outpu
     container.innerHTML = html;
 }
 
-function handleSendAnalysisToTeacher() {
+async function handleSendAnalysisToTeacher() {
     if (!currentAnalysisCache) {
         showNotification("Gönderilecek bir analiz bulunamadı.", "error");
         return;
     }
+    if (!isDbConnected) {
+        showNotification("Veritabanı bağlantısı olmadığından gönderilemedi.", "error");
+        return;
+    }
 
-    const allUploads = getUploadedAnalyses();
+    const uploadId = `upload_${Date.now()}`;
     const uploadData = {
-        id: `upload_${Date.now()}`,
+        id: uploadId,
         studentId: currentUserId,
         ...currentAnalysisCache,
         timestamp: new Date().toISOString(),
         feedback: null
     };
-    allUploads.push(uploadData);
-    localStorage.setItem('uploaded_analyses', JSON.stringify(allUploads));
+    
+    await db.setData('uploads', uploadId, uploadData);
     showNotification("Analiz başarıyla öğretmene gönderildi!", "success");
     analysis.sendButton.classList.add('hidden');
     currentAnalysisCache = null;
 }
 
-function getUploadedAnalyses() { return safeJsonParse('uploaded_analyses', []); }
-
 // --- Student-Teacher Communication ---
-function handleStudentQuestion() {
+async function handleStudentQuestion() {
     const question = teacherQASystem.input.value.trim();
     if (!question) {
         showNotification("Lütfen bir soru girin.", "error");
         return;
     }
-    const allQAs = getAllQAs();
-    allQAs.push({
-        id: `qa_${Date.now()}`,
+     if (!isDbConnected) {
+        showNotification("Veritabanı bağlantısı olmadığından soru gönderilemedi.", "error");
+        return;
+    }
+    const qaId = `qa_${Date.now()}`;
+    const qaData = {
+        id: qaId,
         studentId: currentUserId,
         question: question,
         answer: null,
         timestamp: new Date().toISOString()
-    });
-    localStorage.setItem('student_qas', JSON.stringify(allQAs));
+    };
+    await db.setData('qas', qaId, qaData);
     teacherQASystem.input.value = '';
-    renderQACard();
+    await renderQACard();
     showNotification("Sorunuz öğretmene iletildi.", "success");
 }
 
-function getAllQAs() { return safeJsonParse('student_qas', []); }
-function getQAsForStudent(studentId: string) { return getAllQAs().filter((qa: any) => qa.studentId === studentId); }
+async function getQAsForStudent(studentId: string) {
+    if (!isDbConnected) return [];
+    return await db.getCollectionWhere('qas', 'studentId', '==', studentId);
+}
 
 
 // --- Utility Functions ---
@@ -1203,22 +1213,20 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
 
 // --- Teacher Specific Functions ---
 
-function handleApproveRequest(usernameToApprove: string) {
+async function handleApproveRequest(usernameToApprove: string) {
     if (usernameToApprove) {
-        const allUsers = getUsers();
-        const user = allUsers.find((u: any) => u.username === usernameToApprove);
-        if (user) {
-            user.approved = true;
-            saveUsers(allUsers);
-            showNotification(`'${usernameToApprove}' adlı öğrenci onaylandı.`, 'success');
-            renderRegistrationRequests();
-        }
+        await db.updateData('users', usernameToApprove, { approved: true });
+        showNotification(`'${usernameToApprove}' adlı öğrenci onaylandı.`, 'success');
+        await renderRegistrationRequests();
     }
 }
 
-function renderRegistrationRequests() {
-    const users = getUsers();
-    const pendingUsers = users.filter((u: any) => !u.approved);
+async function renderRegistrationRequests() {
+    if (!isDbConnected) {
+        requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        return;
+    }
+    const pendingUsers = await db.getCollectionWhere('users', 'approved', '==', false);
     requestsListContainer.innerHTML = '';
     if (pendingUsers.length === 0) {
         requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Onay bekleyen öğrenci kaydı bulunmuyor.</p>';
@@ -1238,24 +1246,37 @@ function renderRegistrationRequests() {
 }
 
 function renderSettingsTab() {
+    // Gemini API Key Section
     const currentKey = localStorage.getItem(API_KEY_STORAGE_KEY);
     const maskedKey = currentKey ? `•••••••••••••••••••••••••••••••${currentKey.slice(-4)}` : "Henüz ayarlanmadı.";
+    
+    // Firebase Config Section
+    const dbStatus = isDbConnected 
+        ? `<p class="flex items-center text-green-600"><span class="material-symbols-outlined mr-2">check_circle</span>Bağlandı</p>` 
+        : `<p class="flex items-center text-red-600"><span class="material-symbols-outlined mr-2">error</span>Bağlantı Kurulamadı</p>`;
+
     teacherDashboard.contents.settings.innerHTML = `
-        <div class="bg-white/70 p-6 rounded-2xl shadow-xl max-w-2xl mx-auto">
-            <div class="flex items-center gap-3 mb-4">
-                <span class="material-symbols-outlined text-4xl text-[var(--teacher-color)]">settings</span>
-                <div><h3 class="text-2xl font-bold text-gray-800">Sistem Ayarları</h3><p class="text-gray-500">Yapay zeka sistemini yapılandırın.</p></div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="bg-white/70 p-6 rounded-2xl shadow-xl">
+                <div class="flex items-center gap-3 mb-4"><span class="material-symbols-outlined text-4xl text-indigo-500">psychology</span><div><h3 class="text-2xl font-bold text-gray-800">Yapay Zeka Ayarları</h3><p class="text-gray-500">Gemini AI sistemini yapılandırın.</p></div></div>
+                <div class="mt-6 border-t pt-6">
+                    <label for="teacher-api-key-input" class="block text-sm font-medium text-gray-700">Gemini API Anahtarı</label>
+                    <p class="text-xs text-gray-500 mb-2">Mevcut Anahtar: <span class="font-mono">${maskedKey}</span></p>
+                    <input type="password" id="teacher-api-key-input" class="mt-1 block w-full rounded-lg" placeholder="Yeni API anahtarını buraya girin...">
+                    <button id="teacher-save-api-key-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 bg-indigo-500 text-white font-semibold hover:bg-indigo-600"><span>API Anahtarını Kaydet</span></button>
+                </div>
             </div>
-            <div class="mt-6 border-t pt-6">
-                <label for="teacher-api-key-input" class="block text-sm font-medium text-gray-700">Gemini API Anahtarı</label>
-                <p class="text-xs text-gray-500 mb-2">Mevcut Anahtar: <span class="font-mono">${maskedKey}</span></p>
-                <input type="password" id="teacher-api-key-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-lg p-3 transition-shadow" placeholder="Yeni API anahtarını buraya girin...">
-                <p class="text-xs text-gray-500 mt-2">Anahtarınız bu tarayıcıya kaydedilecek ve tüm öğrenci oturumları için kullanılacaktır. Kimseyle paylaşılmaz.</p>
-                <button id="teacher-save-api-key-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 text-md shadow-md hover:shadow-lg">
-                    <span>API Anahtarını Kaydet</span>
-                </button>
+            <div class="bg-white/70 p-6 rounded-2xl shadow-xl">
+                <div class="flex items-center gap-3 mb-4"><span class="material-symbols-outlined text-4xl text-[var(--teacher-color)]">cloud</span><div><h3 class="text-2xl font-bold text-gray-800">Veritabanı Ayarları</h3><p class="text-gray-500">Cihazlar arası erişim için Firebase'i bağlayın.</p></div></div>
+                <div class="mt-6 border-t pt-6">
+                    <div class="flex justify-between items-center mb-2"><label class="block text-sm font-medium text-gray-700">Firebase Yapılandırması</label><div class="text-sm font-semibold">${dbStatus}</div></div>
+                    <p class="text-xs text-gray-500 mb-2">Firebase projenizin ayarlarından web app yapılandırma JSON nesnesini buraya yapıştırın.</p>
+                    <textarea id="teacher-firebase-config-input" class="mt-1 block w-full rounded-lg font-mono text-xs" rows="8" placeholder='{\n  "apiKey": "...",\n  "authDomain": "...",\n  ...\n}'></textarea>
+                    <button id="teacher-save-db-config-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600"><span>Veritabanını Bağla</span></button>
+                </div>
             </div>
         </div>`;
+
     document.getElementById('teacher-save-api-key-button')!.addEventListener('click', () => {
         const input = document.getElementById('teacher-api-key-input') as HTMLInputElement;
         const newKey = input.value.trim();
@@ -1271,13 +1292,40 @@ function renderSettingsTab() {
             showNotification("API anahtarı geçersiz. Lütfen kontrol edip tekrar girin.", "error");
         }
     });
+
+    document.getElementById('teacher-save-db-config-button')!.addEventListener('click', () => {
+        const input = document.getElementById('teacher-firebase-config-input') as HTMLTextAreaElement;
+        const configString = input.value.trim();
+        if (!configString) {
+            showNotification("Lütfen Firebase yapılandırmasını girin.", "error");
+            return;
+        }
+        try {
+            const config = JSON.parse(configString);
+            if (db.initializeFirebase(config)) {
+                localStorage.setItem(FIREBASE_CONFIG_KEY, JSON.stringify(config));
+                isDbConnected = true;
+                showNotification("Veritabanı başarıyla bağlandı!", "success");
+                renderSettingsTab(); // Re-render to show connected status
+            } else {
+                throw new Error("Initialization returned false.");
+            }
+        } catch (error) {
+            console.error("Firebase config error:", error);
+            showNotification("Geçersiz Firebase yapılandırması. Lütfen kontrol edin.", "error");
+        }
+    });
 }
 
 // New Teacher Dashboard Functions
-function renderStudentSimulationsList() {
-    const students = getUsers().filter(u => u.approved);
+async function renderStudentSimulationsList() {
     const container = teacherDashboard.contents.simulations;
     container.innerHTML = `<h3 class="text-xl font-bold text-gray-800 mb-4">Öğrenci Simülasyonları</h3>`;
+    if (!isDbConnected) {
+        container.innerHTML += '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        return;
+    }
+    const students = await db.getCollectionWhere('users', 'approved', '==', true);
     if (students.length === 0) {
         container.innerHTML += '<p class="text-center text-gray-500">İncelenecek öğrencisi olan simülasyon bulunmuyor.</p>';
         return;
@@ -1296,19 +1344,20 @@ function renderStudentSimulationsList() {
     container.appendChild(studentList);
 }
 
-function showStudentSessionReviewList(studentId: string) {
+async function showStudentSessionReviewList(studentId: string) {
     reviewingStudentId = studentId;
     showScreen('teacherReview');
     teacherReview.listView.classList.remove('hidden');
     teacherReview.detailView.classList.add('hidden');
     teacherReview.listStudentName.textContent = studentId;
-    const sessions = getAllSessionsForStudent(studentId);
+    const sessions = await getAllSessionsForStudent(studentId);
     teacherReview.sessionListContainer.innerHTML = '';
     if (sessions.length === 0) {
         teacherReview.sessionListContainer.innerHTML = '<p class="text-center text-gray-500">Bu öğrencinin tamamlanmış seansı bulunmuyor.</p>';
         return;
     }
-    sessions.reverse().forEach(session => { // Show newest first
+    sessions.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // newest first
+    sessions.forEach(session => {
         teacherReview.sessionListContainer.innerHTML += `
             <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
                 <div>
@@ -1322,10 +1371,11 @@ function showStudentSessionReviewList(studentId: string) {
     });
 }
 
-function showSessionDetailReview(studentId: string, sessionId: string) {
+async function showSessionDetailReview(studentId: string, sessionId: string) {
     reviewingStudentId = studentId;
     reviewingSessionId = sessionId;
-    const session = getAllSessionsForStudent(studentId).find(s => s.id === sessionId);
+    const sessions = await getAllSessionsForStudent(studentId);
+    const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
 
     teacherReview.listView.classList.add('hidden');
@@ -1357,32 +1407,35 @@ function showSessionDetailReview(studentId: string, sessionId: string) {
     }
 }
 
-function handleSubmitSessionFeedback() {
+async function handleSubmitSessionFeedback() {
     const feedbackText = teacherReview.feedbackInput.value.trim();
     if (!feedbackText) {
         showNotification("Lütfen bir geri bildirim yazın.", "error");
         return;
     }
-    const allStudentSessions = getAllSessionsForStudent(reviewingStudentId);
-    const sessionIndex = allStudentSessions.findIndex(s => s.id === reviewingSessionId);
-    if (sessionIndex > -1) {
-        allStudentSessions[sessionIndex].feedback = feedbackText;
-        localStorage.setItem(`history_${reviewingStudentId}`, JSON.stringify(allStudentSessions));
-        showNotification("Geri bildirim başarıyla kaydedildi!", "success");
-        showSessionDetailReview(reviewingStudentId, reviewingSessionId); // Refresh view
-    }
+    
+    const feedbackData = { feedback: feedbackText };
+    await db.setDataInSubcollection('students', reviewingStudentId, 'sessions', reviewingSessionId, feedbackData);
+    
+    showNotification("Geri bildirim başarıyla kaydedildi!", "success");
+    await showSessionDetailReview(reviewingStudentId, reviewingSessionId); // Refresh view
 }
 
 
-function renderUploadedAnalysesList() {
-    const uploads = getUploadedAnalyses();
+async function renderUploadedAnalysesList() {
     const container = teacherDashboard.contents.uploads.querySelector('#uploads-list-container')!;
+    if (!isDbConnected) {
+        container.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        return;
+    }
+    const uploads = await db.getCollection('uploads');
     container.innerHTML = '';
     if (uploads.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500">Öğrenciler tarafından yüklenmiş seans bulunmuyor.</p>';
         return;
     }
-    uploads.reverse().forEach(upload => {
+    uploads.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // newest first
+    uploads.forEach(upload => {
         container.innerHTML += `
             <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
                 <div>
@@ -1396,9 +1449,9 @@ function renderUploadedAnalysesList() {
     });
 }
 
-function showUploadReviewDetail(uploadId: string) {
+async function showUploadReviewDetail(uploadId: string) {
     reviewingUploadId = uploadId;
-    const upload = getUploadedAnalyses().find(u => u.id === uploadId);
+    const upload = await db.getData('uploads', uploadId);
     if (!upload) return;
 
     showScreen('teacherUploadReview');
@@ -1414,31 +1467,31 @@ function showUploadReviewDetail(uploadId: string) {
     }
 }
 
-function handleSubmitUploadFeedback() {
+async function handleSubmitUploadFeedback() {
     const feedbackText = teacherUploadReview.feedbackInput.value.trim();
     if (!feedbackText) {
         showNotification("Lütfen bir geri bildirim yazın.", "error");
         return;
     }
-    const allUploads = getUploadedAnalyses();
-    const uploadIndex = allUploads.findIndex(u => u.id === reviewingUploadId);
-    if (uploadIndex > -1) {
-        allUploads[uploadIndex].feedback = feedbackText;
-        localStorage.setItem('uploaded_analyses', JSON.stringify(allUploads));
-        showNotification("Geri bildirim başarıyla kaydedildi!", "success");
-        showUploadReviewDetail(reviewingUploadId); // Refresh view
-    }
+    await db.updateData('uploads', reviewingUploadId, { feedback: feedbackText });
+    showNotification("Geri bildirim başarıyla kaydedildi!", "success");
+    await showUploadReviewDetail(reviewingUploadId); // Refresh view
 }
 
-function renderStudentQuestions() {
-    const questions = getAllQAs();
+async function renderStudentQuestions() {
     const container = teacherDashboard.contents.questions.querySelector('#questions-list-container')!;
+    if (!isDbConnected) {
+        container.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        return;
+    }
+    const questions = await db.getCollection('qas');
     container.innerHTML = '';
     if (questions.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500">Henüz öğrenci sorusu bulunmuyor.</p>';
         return;
     }
-    questions.reverse().forEach(qa => {
+    questions.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // newest first
+    questions.forEach(qa => {
         container.innerHTML += `
             <div class="bg-white p-4 rounded-lg shadow-sm">
                 <div class="flex justify-between items-start">
@@ -1456,27 +1509,31 @@ function renderStudentQuestions() {
     });
 }
 
-function handleReplyToQuestion(questionId: string) {
+async function handleReplyToQuestion(questionId: string) {
     const input = document.getElementById(`reply-input-${questionId}`) as HTMLTextAreaElement;
     const answer = input.value.trim();
     if (!answer) {
         showNotification("Lütfen bir yanıt yazın.", "error");
         return;
     }
-    const allQAs = getAllQAs();
-    const qaIndex = allQAs.findIndex(q => q.id === questionId);
-    if (qaIndex > -1) {
-        allQAs[qaIndex].answer = answer;
-        localStorage.setItem('student_qas', JSON.stringify(allQAs));
-        showNotification("Yanıtınız öğrenciye iletildi.", "success");
-        renderStudentQuestions();
-    }
+    await db.updateData('qas', questionId, { answer });
+    showNotification("Yanıtınız öğrenciye iletildi.", "success");
+    await renderStudentQuestions();
 }
 
-function renderClassAnalytics() {
+async function renderClassAnalytics() {
     const container = teacherDashboard.contents.analytics;
-    const students = getUsers().filter(u => u.approved);
-    const allSessions = students.flatMap(student => getAllSessionsForStudent(student.username));
+    if (!isDbConnected) {
+        container.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        return;
+    }
+    
+    const students = await db.getCollectionWhere('users', 'approved', '==', true);
+    let allSessions: any[] = [];
+    for (const student of students) {
+        const studentSessions = await getAllSessionsForStudent(student.id);
+        allSessions.push(...studentSessions);
+    }
     const allScores = allSessions.flatMap(s => s.scores);
     
     const totalSimulations = allSessions.length;
@@ -1528,7 +1585,11 @@ function renderScenarioBuilder() {
             <button id="save-scenario-button" class="w-full h-12 px-6 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600">Senaryoyu Kaydet</button>
         </div>`;
     
-    document.getElementById('save-scenario-button')!.addEventListener('click', () => {
+    document.getElementById('save-scenario-button')!.addEventListener('click', async () => {
+        if (!isDbConnected) {
+            showNotification("Bu özellik için veritabanı bağlantısı gerekli.", "error");
+            return;
+        }
         const title = (document.getElementById('builder-title') as HTMLInputElement).value.trim();
         const description = (document.getElementById('builder-desc') as HTMLTextAreaElement).value.trim();
         const profile = (document.getElementById('builder-profile') as HTMLTextAreaElement).value.trim();
@@ -1536,13 +1597,13 @@ function renderScenarioBuilder() {
             showNotification("Tüm alanlar zorunludur.", "error");
             return;
         }
-        const customScenarios = getCustomScenarios();
-        customScenarios.push({
-            id: `custom_${Date.now()}`,
+        const scenarioId = `custom_${Date.now()}`;
+        const newScenario: Scenario = {
+            id: scenarioId,
             title, description, profile,
             isCustom: true
-        });
-        saveCustomScenarios(customScenarios);
+        };
+        await db.setData('customScenarios', scenarioId, newScenario);
         showNotification("Özel senaryo başarıyla kaydedildi!", "success");
         (document.getElementById('builder-title') as HTMLInputElement).value = '';
         (document.getElementById('builder-desc') as HTMLTextAreaElement).value = '';
@@ -1550,9 +1611,15 @@ function renderScenarioBuilder() {
     });
 }
 
-function renderResourceLibrary() {
+async function renderResourceLibrary() {
     const container = teacherDashboard.contents.library;
-    let allScenarios = [...scenarios, ...getCustomScenarios()];
+     if (!isDbConnected) {
+        container.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        return;
+    }
+
+    let allDbScenarios = await db.getCollection('customScenarios');
+    let allScenarios = [...scenarios, ...allDbScenarios];
 
     let scenarioOptions = allScenarios.map(s => `<option value="${s.id}">${s.title}</option>`).join('');
 
@@ -1575,10 +1642,11 @@ function renderResourceLibrary() {
         </div>
     `;
 
-    const renderList = () => {
+    const renderList = async () => {
         const listContainer = document.getElementById('resource-list')!;
+        const resources = await db.getCollection('resources');
         listContainer.innerHTML = '';
-        getResources().forEach(r => {
+        resources.forEach(r => {
             listContainer.innerHTML += `
                 <div class="flex items-center justify-between bg-white p-3 rounded-md shadow-sm">
                     <div>
@@ -1588,34 +1656,32 @@ function renderResourceLibrary() {
                     <button class="delete-resource-button text-red-500 hover:text-red-700" data-id="${r.id}"><span class="material-symbols-outlined">delete</span></button>
                 </div>`;
         });
-        document.querySelectorAll('.delete-resource-button').forEach(btn => btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.delete-resource-button').forEach(btn => btn.addEventListener('click', async (e) => {
             const id = (e.currentTarget as HTMLElement).dataset.id!;
-            let currentResources = getResources();
-            currentResources = currentResources.filter(res => res.id !== id);
-            saveResources(currentResources);
-            renderList();
+            await db.deleteData('resources', id);
+            await renderList();
         }));
     };
     
-    document.getElementById('save-resource-button')!.addEventListener('click', () => {
+    document.getElementById('save-resource-button')!.addEventListener('click', async () => {
         const title = (document.getElementById('resource-title') as HTMLInputElement).value.trim();
         const url = (document.getElementById('resource-url') as HTMLInputElement).value.trim();
         const type = (document.getElementById('resource-type') as HTMLSelectElement).value as 'article' | 'video' | 'pdf';
-        const scenarioIds = Array.from((document.getElementById('resource-scenarios') as HTMLSelectElement).selectedOptions).map(opt => opt.value);
+        const associatedScenarioIds = Array.from((document.getElementById('resource-scenarios') as HTMLSelectElement).selectedOptions).map(opt => opt.value);
         if (!title || !url) {
             showNotification("Başlık ve URL zorunludur.", "error");
             return;
         }
-        const currentResources = getResources();
-        currentResources.push({ id: `res_${Date.now()}`, title, url, type, associatedScenarioIds: scenarioIds });
-        saveResources(currentResources);
+        const resourceId = `res_${Date.now()}`;
+        const newResource: Resource = { id: resourceId, title, url, type, associatedScenarioIds };
+        await db.setData('resources', resourceId, newResource);
         showNotification("Kaynak kaydedildi.", "success");
         (document.getElementById('resource-title') as HTMLInputElement).value = '';
         (document.getElementById('resource-url') as HTMLInputElement).value = '';
-        renderList();
+        await renderList();
     });
 
-    renderList();
+    await renderList();
 }
 
 
