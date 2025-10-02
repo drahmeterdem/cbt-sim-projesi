@@ -255,30 +255,30 @@ const resources: Resource[] = [
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
-    initializeApp();
-});
-
-function initializeApp() {
     setupEventListeners();
     setupApiKeyModalListener();
+    checkSessionAndRoute();
+});
 
-    // Check for an active session
+function checkSessionAndRoute() {
     const session = localStorage.getItem(SESSION_KEY);
     if (session) {
         const { userId, userType, studentName } = JSON.parse(session);
         currentUserId = userId;
         if (userType === 'student') {
             currentStudentName = studentName;
-            // Attempt to initialize AI silently. It will only work if teacher has set key.
-            try {
-                const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
-                if (savedApiKey) ai = new GoogleGenAI({ apiKey: savedApiKey });
-            } catch (e) {
-                console.warn("Could not initialize AI for student. Teacher may need to log in and set API key.");
+            // Attempt to initialize AI silently for the student.
+            const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+            if (savedApiKey) {
+                try {
+                    ai = new GoogleGenAI({ apiKey: savedApiKey });
+                } catch (e) {
+                    console.warn("Could not initialize AI for student. Key might be invalid.");
+                }
             }
             showScreen('studentDashboard');
         } else if (userType === 'teacher') {
-            checkAndInitializeAi(); // This might show the modal
+            initializeAiClient(); // This will check for a key and show the modal if needed.
             showScreen('teacherDashboard');
         }
     } else {
@@ -297,8 +297,8 @@ function setupApiKeyModalListener() {
 
         try {
             // Test the key by initializing the client
-            ai = new GoogleGenAI({ apiKey: key });
-            // If successful, save it and hide the modal
+            const testAi = new GoogleGenAI({ apiKey: key });
+            ai = testAi; // If it doesn't throw, assign it to the global client
             localStorage.setItem(API_KEY_STORAGE_KEY, key);
             apiKeyModal.container.classList.add('hidden');
             showNotification("API anahtarı başarıyla yapılandırıldı. Sistem şimdi aktif.", "success");
@@ -418,26 +418,32 @@ function setupEventListeners() {
 
     // Student QA with Teacher
     teacherQASystem.button.addEventListener('click', handleStudentQuestion);
+
+    // Event Delegation for Registration Requests
+    requestsListContainer.addEventListener('click', handleApproveRequest);
 }
 
 // --- Authentication & User Management ---
-function checkAndInitializeAi() {
-    if (ai) return; // Already initialized
+function initializeAiClient() {
+    if (ai) return true; // AI is already running
 
     const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
     if (savedApiKey) {
         try {
             ai = new GoogleGenAI({ apiKey: savedApiKey });
             console.log("AI client initialized successfully from saved key.");
-            return; // Success
+            apiKeyModal.container.classList.add('hidden'); // Ensure modal is hidden if key is good
+            return true;
         } catch (error) {
-            console.error("Failed to initialize GoogleGenAI with saved key:", error);
-            localStorage.removeItem(API_KEY_STORAGE_KEY); // The saved key is bad, remove it
+            console.error("Saved API key is invalid, removing it.", error);
+            localStorage.removeItem(API_KEY_STORAGE_KEY);
+            ai = null; // Reset client
         }
     }
     
-    // If we reach here, we need the user to provide a key
+    // If we are here, we need the key. Show the modal for the teacher.
     apiKeyModal.container.classList.remove('hidden');
+    return false; // AI is not ready
 }
 
 
@@ -474,7 +480,7 @@ function handleLogin() {
             currentUserId = user.username;
             currentStudentName = user.username;
             localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.username, studentName: user.username, userType: 'student' }));
-            initializeApp(); // Re-initialize to route to dashboard
+            checkSessionAndRoute(); // Re-route to dashboard
         } else {
             loginError.textContent = "Hesabınız henüz öğretmen tarafından onaylanmadı.";
             loginError.classList.remove('hidden');
@@ -526,7 +532,7 @@ function handleTeacherLogin() {
     if (password === TEACHER_PASSWORD) {
         currentUserId = 'teacher';
         localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: 'teacher', userType: 'teacher' }));
-        initializeApp(); // Re-initialize to route to teacher dashboard
+        checkSessionAndRoute(); // Re-route to teacher dashboard
     } else {
         teacherLoginError.textContent = "Geçersiz yönetici şifresi.";
         teacherLoginError.classList.remove('hidden');
@@ -535,6 +541,9 @@ function handleTeacherLogin() {
 
 function logout() {
     localStorage.removeItem(SESSION_KEY);
+    currentUserId = '';
+    currentStudentName = '';
+    ai = null; // Clear AI client on logout
     window.location.reload();
 }
 
@@ -1342,6 +1351,26 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
 // --- Teacher Specific Functions (to be filled in) ---
 function getCustomScenarios() { return []; } // Placeholder
 
+function handleApproveRequest(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+    const button = target.closest<HTMLButtonElement>('.approve-button');
+
+    if (button) {
+        const usernameToApprove = button.dataset.username;
+        if (usernameToApprove) {
+            const allUsers = getUsers();
+            const user = allUsers.find((u: any) => u.username === usernameToApprove);
+            if (user) {
+                user.approved = true;
+                saveUsers(allUsers);
+                showNotification(`'${usernameToApprove}' adlı öğrenci onaylandı.`, 'success');
+                renderRegistrationRequests(); // Re-render the list
+            }
+        }
+    }
+}
+
+
 function renderRegistrationRequests() {
     const users = getUsers();
     const pendingUsers = users.filter((u: any) => !u.approved);
@@ -1366,20 +1395,6 @@ function renderRegistrationRequests() {
             </button>
         `;
         requestsListContainer.appendChild(requestElement);
-    });
-
-    document.querySelectorAll('.approve-button').forEach(button => {
-        button.addEventListener('click', (e) => {
-            const usernameToApprove = (e.currentTarget as HTMLElement).dataset.username!;
-            const allUsers = getUsers();
-            const user = allUsers.find((u: any) => u.username === usernameToApprove);
-            if (user) {
-                user.approved = true;
-                saveUsers(allUsers);
-                showNotification(`'${usernameToApprove}' adlı öğrenci onaylandı.`, 'success');
-                renderRegistrationRequests(); // Re-render the list
-            }
-        });
     });
 }
 
