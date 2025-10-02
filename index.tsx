@@ -774,8 +774,14 @@ function resumeSession() {
         });
 
         // Re-render last state
-        const lastModelResponse = JSON.parse(chatHistory[chatHistory.length - 1].parts[0].text);
-        updateSimulationUI(lastModelResponse);
+        try {
+            const lastModelResponse = JSON.parse(chatHistory[chatHistory.length - 1].parts[0].text);
+            updateSimulationUI(lastModelResponse);
+        } catch (e) {
+            console.error("Failed to parse last model response on session resume:", e);
+            simulation.optionsContainer.innerHTML = `<p class="text-red-500 col-span-2 text-center">Kaydedilmiş seans yüklenirken bir hata oluştu. Lütfen seansı silip baştan başlayın.</p>`;
+            showNotification("Kaydedilmiş seans verisi bozuk.", "error");
+        }
     }
 }
 
@@ -850,19 +856,25 @@ async function handleAnalyzeTranscript() {
             }
         });
 
-        let jsonText = response.text.trim();
-        // The model can sometimes wrap the JSON in ```json ... ```. This extracts the content.
-        const jsonMatch = jsonText.match(/{[\s\S]*}/);
-        if (!jsonMatch) {
-            console.error("Invalid JSON structure received from AI for analysis:", response.text);
+        const rawText = response.text.trim();
+        const jsonString = extractJsonFromString(rawText);
+
+        if (!jsonString) {
+            console.error("Invalid JSON structure received from AI for analysis:", rawText);
             throw new Error("AI analysis response did not contain a valid JSON object.");
         }
-        jsonText = jsonMatch[0];
-
-        const jsonResponse = JSON.parse(jsonText);
-        renderAnalysisOutput(jsonResponse);
-        analysis.sendButton.classList.remove('hidden');
-        currentAnalysisCache = { transcript, analysis: jsonResponse };
+        
+        try {
+            const jsonResponse = JSON.parse(jsonString);
+            renderAnalysisOutput(jsonResponse);
+            analysis.sendButton.classList.remove('hidden');
+            currentAnalysisCache = { transcript, analysis: jsonResponse };
+        } catch (parseError) {
+            console.error("Analysis Parse Error:", parseError);
+            console.error("Original raw text from AI for analysis:", rawText);
+            console.error("Extracted JSON string that failed to parse:", jsonString);
+            throw new Error("Failed to parse the JSON data from the AI analysis.");
+        }
 
     } catch (error) {
         console.error("Analysis Error:", error);
@@ -942,6 +954,49 @@ function getQAsForStudent(studentId: string) {
 
 
 // --- Utility Functions ---
+
+/**
+ * Extracts a JSON object or array from a string that might contain other text.
+ * It finds the first '{' or '[' and the last '}' or ']' and returns the substring between them.
+ * @param text The string to search for JSON.
+ * @returns The extracted JSON string, or null if no valid JSON structure is found.
+ */
+function extractJsonFromString(text: string): string | null {
+    let firstBracket = text.indexOf('{');
+    let firstSquare = text.indexOf('[');
+    let firstOpen = -1;
+
+    if (firstBracket > -1 && firstSquare > -1) {
+        firstOpen = Math.min(firstBracket, firstSquare);
+    } else if (firstBracket > -1) {
+        firstOpen = firstBracket;
+    } else {
+        firstOpen = firstSquare;
+    }
+
+    if (firstOpen === -1) {
+        return null; // No JSON object or array found
+    }
+
+    let lastBracket = text.lastIndexOf('}');
+    let lastSquare = text.lastIndexOf(']');
+    let lastClose = -1;
+    
+    if (lastBracket > -1 && lastSquare > -1) {
+        lastClose = Math.max(lastBracket, lastSquare);
+    } else if (lastBracket > -1) {
+        lastClose = lastBracket;
+    } else {
+        lastClose = lastSquare;
+    }
+
+    if (lastClose === -1 || lastClose < firstOpen) {
+        return null;
+    }
+
+    return text.substring(firstOpen, lastClose + 1);
+}
+
 
 function calculateAverageScores(scores: any[]) {
     const totals = {
@@ -1059,21 +1114,27 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
             }
         });
         
-        let jsonText = response.text.trim();
-        // The model can sometimes wrap the JSON in ```json ... ```. This extracts the content.
-        const jsonMatch = jsonText.match(/{[\s\S]*}/);
-        if (!jsonMatch) {
-            console.error("Invalid JSON structure received from AI:", response.text);
+        const rawText = response.text.trim();
+        const jsonString = extractJsonFromString(rawText);
+
+        if (!jsonString) {
+            console.error("Invalid JSON structure received from AI:", rawText);
             throw new Error("AI response did not contain a valid JSON object.");
         }
-        jsonText = jsonMatch[0];
-
-        const jsonResponse = JSON.parse(jsonText);
         
-        // Add AI's cleaned JSON response to history
-        chatHistory.push({ role: 'model', parts: [{ text: jsonText }] });
-        
-        updateSimulationUI(jsonResponse);
+        try {
+            const jsonResponse = JSON.parse(jsonString);
+            
+            // Add AI's cleaned JSON response to history
+            chatHistory.push({ role: 'model', parts: [{ text: jsonString }] });
+            
+            updateSimulationUI(jsonResponse);
+        } catch(parseError) {
+             console.error("AI Response Parse Error:", parseError);
+             console.error("Original raw text from AI:", rawText);
+             console.error("Extracted JSON string that failed to parse:", jsonString);
+             throw new Error("Failed to parse the JSON data from the AI.");
+        }
 
     } catch (error) {
         console.error("AI Response Error:", error);
@@ -1081,7 +1142,6 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
         simulation.optionsContainer.innerHTML = '<p class="text-red-500 col-span-2 text-center">Yapay zeka yanıt verirken bir hata oluştu. Lütfen sayfayı yenileyip tekrar deneyin.</p>';
         showNotification("AI yanıt hatası.", "error");
     } 
-    // No finally block needed as loader is handled by success/error paths
 }
 
 // --- Teacher Specific Functions (to be filled in) ---
