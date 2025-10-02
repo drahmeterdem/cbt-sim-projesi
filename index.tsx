@@ -19,8 +19,9 @@ interface Resource {
 }
 
 // --- Gemini AI Client Initialization ---
-// @ts-ignore
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+let ai: GoogleGenAI | null = null;
+const API_KEY_STORAGE_KEY = 'gemini_api_key';
+
 
 // --- Global State & Constants ---
 let currentStudentName: string = '';
@@ -161,6 +162,11 @@ const teacherReview = {
 
 
 // Modals
+const apiKeyModal = {
+    container: document.getElementById('api-key-modal')!,
+    input: document.getElementById('api-key-input') as HTMLInputElement,
+    saveButton: document.getElementById('save-api-key-button')!,
+};
 const rationaleModal = {
     container: document.getElementById('rationale-modal')!,
     title: document.getElementById('modal-title')!,
@@ -241,10 +247,37 @@ const resources: Resource[] = [
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
-    showScreen('welcome');
-    setupEventListeners();
-    renderProblemSelection();
+    initializeApp();
 });
+
+function initializeApp() {
+    setupEventListeners();
+    setupApiKeyModalListener();
+    showScreen('welcome');
+}
+
+function setupApiKeyModalListener() {
+    apiKeyModal.saveButton.addEventListener('click', () => {
+        const key = apiKeyModal.input.value.trim();
+        if (!key) {
+            showNotification("Lütfen geçerli bir API anahtarı girin.", "error");
+            return;
+        }
+
+        try {
+            // Test the key by initializing the client
+            ai = new GoogleGenAI({ apiKey: key });
+            // If successful, save it and hide the modal
+            localStorage.setItem(API_KEY_STORAGE_KEY, key);
+            apiKeyModal.container.classList.add('hidden');
+            showNotification("API anahtarı başarıyla yapılandırıldı. Sistem şimdi aktif.", "success");
+        } catch (error) {
+            console.error("Failed to initialize GoogleGenAI with provided key:", error);
+            ai = null; // Ensure AI client is null if initialization fails
+            showNotification("API anahtarı geçersiz. Lütfen kontrol edip tekrar girin.", "error");
+        }
+    });
+}
 
 
 // --- Screen Management ---
@@ -369,7 +402,28 @@ function handleStudentEntry() {
 function handleTeacherEntry() {
     currentUserId = 'teacher'; // Set a generic teacher ID
     showScreen('teacherDashboard');
+    checkAndInitializeAi();
 }
+
+function checkAndInitializeAi() {
+    if (ai) return; // Already initialized
+
+    const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+    if (savedApiKey) {
+        try {
+            ai = new GoogleGenAI({ apiKey: savedApiKey });
+            console.log("AI client initialized successfully from saved key.");
+            return; // Success
+        } catch (error) {
+            console.error("Failed to initialize GoogleGenAI with saved key:", error);
+            localStorage.removeItem(API_KEY_STORAGE_KEY); // The saved key is bad, remove it
+        }
+    }
+    
+    // If we reach here, we need the user to provide a key
+    apiKeyModal.container.classList.remove('hidden');
+}
+
 
 function toggleLoginViews(view: 'login' | 'register' | 'teacher') {
     loginView.classList.add('hidden');
@@ -431,6 +485,11 @@ function createScenarioCard(scenario: Scenario): HTMLElement {
 
 // --- Simulation Logic ---
 function startSimulation(scenario: Scenario) {
+    if (!ai) {
+        showNotification("Sistem aktif değil. Lütfen öğretmenin API anahtarını yapılandırmasını sağlayın.", "error");
+        return;
+    }
+
     currentScenario = scenario;
     chatHistory = [];
     sessionScores = [];
@@ -819,6 +878,11 @@ function getAllSessionsForStudent(userId: string) {
 
 // --- Analysis Screen Logic ---
 async function handleAnalyzeTranscript() {
+    if (!ai) {
+        showNotification("Sistem aktif değil. Lütfen öğretmenin API anahtarını yapılandırmasını sağlayın.", "error");
+        return;
+    }
+
     const transcript = analysis.transcriptInput.value;
     if (!transcript.trim()) {
         showNotification("Lütfen analiz için bir transkript girin.", "error");
@@ -1060,6 +1124,10 @@ function showNotification(message: string, type: 'success' | 'error' | 'info') {
  * @throws The last error if all retries fail.
  */
 async function generateContentWithRetry(params: any, retries = 3) {
+    if (!ai) {
+        throw new Error("AI client is not initialized. Please set the API key.");
+    }
+
     let lastError: any = null;
     for (let i = 0; i < retries; i++) {
         try {
