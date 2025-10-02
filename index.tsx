@@ -850,7 +850,16 @@ async function handleAnalyzeTranscript() {
             }
         });
 
-        const jsonResponse = JSON.parse(response.text);
+        let jsonText = response.text.trim();
+        // The model can sometimes wrap the JSON in ```json ... ```. This extracts the content.
+        const jsonMatch = jsonText.match(/{[\s\S]*}/);
+        if (!jsonMatch) {
+            console.error("Invalid JSON structure received from AI for analysis:", response.text);
+            throw new Error("AI analysis response did not contain a valid JSON object.");
+        }
+        jsonText = jsonMatch[0];
+
+        const jsonResponse = JSON.parse(jsonText);
         renderAnalysisOutput(jsonResponse);
         analysis.sendButton.classList.remove('hidden');
         currentAnalysisCache = { transcript, analysis: jsonResponse };
@@ -1050,10 +1059,19 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
             }
         });
         
-        const jsonResponse = JSON.parse(response.text);
+        let jsonText = response.text.trim();
+        // The model can sometimes wrap the JSON in ```json ... ```. This extracts the content.
+        const jsonMatch = jsonText.match(/{[\s\S]*}/);
+        if (!jsonMatch) {
+            console.error("Invalid JSON structure received from AI:", response.text);
+            throw new Error("AI response did not contain a valid JSON object.");
+        }
+        jsonText = jsonMatch[0];
+
+        const jsonResponse = JSON.parse(jsonText);
         
-        // Add AI's full JSON response to history for potential future use (like resuming session)
-        chatHistory.push({ role: 'model', parts: [{ text: response.text }] });
+        // Add AI's cleaned JSON response to history
+        chatHistory.push({ role: 'model', parts: [{ text: jsonText }] });
         
         updateSimulationUI(jsonResponse);
 
