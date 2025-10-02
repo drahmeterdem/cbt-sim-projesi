@@ -399,7 +399,7 @@
         </nav>
     </div>
     <div id="teacher-content-container" class="transition-opacity duration-300">
-        <div id="simulations-content" class="teacher-content hidden"></div>
+        <div id="simulations-content" class="teacher-content hidden bg-white/70 p-6 rounded-2xl shadow-xl"></div>
         <div id="requests-content" class="teacher-content">
             <div id="requests-list-container" class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4"></div>
         </div>
@@ -410,8 +410,8 @@
              <div id="questions-list-container" class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-6"></div>
         </div>
         <div id="analytics-content" class="teacher-content hidden p-6 bg-white/70 rounded-2xl shadow-xl"></div>
-        <div id="builder-content" class="teacher-content hidden"></div>
-        <div id="library-content" class="teacher-content hidden"></div>
+        <div id="builder-content" class="teacher-content hidden p-6 bg-white/70 rounded-2xl shadow-xl"></div>
+        <div id="library-content" class="teacher-content hidden p-6 bg-white/70 rounded-2xl shadow-xl"></div>
         <div id="settings-content" class="teacher-content hidden"></div>
     </div>
 </div>
@@ -420,11 +420,11 @@
 <!-- Teacher Review Screen (for Simulations) -->
 <div id="teacher-review-screen" class="screen hidden">
     <!-- This container shows the list of sessions for a student -->
-    <div id="teacher-review-list-view">
+    <div id="teacher-review-list-view" class="w-full">
         <div class="flex items-center justify-between mb-6">
             <button id="back-to-teacher-dashboard-button" class="flex items-center justify-center rounded-lg h-10 px-4 bg-white/80 text-gray-600 font-semibold hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md">
                 <span class="material-symbols-outlined mr-2">arrow_back</span>
-                <span>Tüm Öğrenciler</span>
+                <span>Öğrenci Listesine Dön</span>
             </button>
             <h2 class="text-gray-900 tracking-tight text-2xl sm:text-3xl font-bold text-center">
                 <span id="review-list-student-name" class="text-[var(--teacher-color)]"></span> için Seans Listesi
@@ -437,7 +437,7 @@
     </div>
 
     <!-- This container shows the detailed view of a single session -->
-    <div id="teacher-review-detail-view" class="hidden">
+    <div id="teacher-review-detail-view" class="hidden w-full">
         <div class="flex flex-col gap-2 text-center">
             <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Simülasyon İncelemesi</h2>
             <p class="text-gray-600 text-lg">
@@ -457,15 +457,17 @@
                 <!-- Review messages will be appended here -->
             </div>
              <div id="review-feedback-section" class="p-4 sm:p-6 border-t border-b border-gray-200 bg-white/20">
-                <!-- Review graphs will be shown here -->
+                <h4 class="text-gray-700 font-bold text-lg mb-4 text-center">Seans Sonu Performans Analizi</h4>
+                <div id="review-charts-container"></div>
              </div>
             <div class="p-4 sm:p-6 bg-white/70">
                 <h4 class="text-gray-700 font-bold text-lg mb-4 text-center">Öğrenciye Genel Geri Bildirim Ekle</h4>
-                <div class="flex flex-col gap-3">
+                <div id="review-feedback-form" class="flex flex-col gap-3">
+                    <div id="existing-feedback-display" class="prose max-w-none"></div>
                     <textarea id="feedback-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 transition-shadow" rows="3" placeholder="Seansın geneline yönelik geri bildiriminizi buraya yazın..."></textarea>
                     <button id="submit-feedback-button" class="flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 text-md shadow-md hover:shadow-lg">
                         <span class="material-symbols-outlined mr-2">send</span>
-                        <span>Genel Geri Bildirim Gönder</span>
+                        <span>Geri Bildirim Gönder</span>
                     </button>
                 </div>
             </div>
@@ -498,11 +500,14 @@
     </div>
     <div class="mt-8 bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl">
         <h3 class="text-xl font-bold text-gray-800 text-center mb-4">Bu Analize Geri Bildirim Ekle</h3>
-        <textarea id="upload-feedback-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 transition-shadow" rows="4" placeholder="Yapay zeka analizine ve transkripte yönelik genel geri bildiriminizi buraya yazın..."></textarea>
-        <button id="submit-upload-feedback-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 shadow-md hover:shadow-lg">
-            <span class="material-symbols-outlined mr-2">send</span>
-            <span>Geri Bildirim Gönder</span>
-        </button>
+        <div id="upload-feedback-form">
+            <div id="existing-upload-feedback-display" class="prose max-w-none"></div>
+            <textarea id="upload-feedback-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 transition-shadow" rows="4" placeholder="Yapay zeka analizine ve transkripte yönelik genel geri bildiriminizi buraya yazın..."></textarea>
+            <button id="submit-upload-feedback-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 shadow-md hover:shadow-lg">
+                <span class="material-symbols-outlined mr-2">send</span>
+                <span>Geri Bildirim Gönder</span>
+            </button>
+        </div>
     </div>
 </div>
 
