@@ -49,8 +49,7 @@ const screens = {
 };
 
 // Welcome Screen
-const studentLoginButton = document.getElementById('student-login-button')!;
-const teacherEntryButton = document.getElementById('teacher-entry-button')!;
+const goToLoginButton = document.getElementById('go-to-login-button')!;
 
 // General UI
 const studentInfo = document.getElementById('student-info')!;
@@ -142,6 +141,8 @@ const teacherDashboard = {
         library: document.getElementById('library-content')!,
     }
 };
+const requestsListContainer = document.getElementById('requests-list-container')!;
+
 
 // Teacher Review Screen
 const teacherReview = {
@@ -220,8 +221,15 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 
 // --- Database (LocalStorage) ---
 
-// ... existing database functions (getUsers, saveUsers, etc.) ...
-// These functions will be called by the new authentication logic.
+function getUsers() {
+    const users = localStorage.getItem(USERS_KEY);
+    return users ? JSON.parse(users) : [];
+}
+
+function saveUsers(users: any[]) {
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
 
 // --- Core App Logic ---
 
@@ -253,8 +261,31 @@ document.addEventListener('DOMContentLoaded', () => {
 function initializeApp() {
     setupEventListeners();
     setupApiKeyModalListener();
-    showScreen('welcome');
+
+    // Check for an active session
+    const session = localStorage.getItem(SESSION_KEY);
+    if (session) {
+        const { userId, userType, studentName } = JSON.parse(session);
+        currentUserId = userId;
+        if (userType === 'student') {
+            currentStudentName = studentName;
+            // Attempt to initialize AI silently. It will only work if teacher has set key.
+            try {
+                const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+                if (savedApiKey) ai = new GoogleGenAI({ apiKey: savedApiKey });
+            } catch (e) {
+                console.warn("Could not initialize AI for student. Teacher may need to log in and set API key.");
+            }
+            showScreen('studentDashboard');
+        } else if (userType === 'teacher') {
+            checkAndInitializeAi(); // This might show the modal
+            showScreen('teacherDashboard');
+        }
+    } else {
+        showScreen('welcome');
+    }
 }
+
 
 function setupApiKeyModalListener() {
     apiKeyModal.saveButton.addEventListener('click', () => {
@@ -332,8 +363,7 @@ function updateHeader() {
 // --- Event Listeners Setup ---
 function setupEventListeners() {
     // Welcome Screen
-    studentLoginButton.addEventListener('click', handleStudentEntry);
-    teacherEntryButton.addEventListener('click', handleTeacherEntry);
+    goToLoginButton.addEventListener('click', () => showScreen('login'));
     
     // Login/Register
     loginButton.addEventListener('click', handleLogin);
@@ -391,20 +421,6 @@ function setupEventListeners() {
 }
 
 // --- Authentication & User Management ---
-
-function handleStudentEntry() {
-    currentUserId = 'ogrenci1'; // Default user for testing
-    currentStudentName = 'Demo Öğrenci';
-    document.getElementById('student-name-display')!.textContent = currentStudentName;
-    showScreen('studentDashboard');
-}
-
-function handleTeacherEntry() {
-    currentUserId = 'teacher'; // Set a generic teacher ID
-    showScreen('teacherDashboard');
-    checkAndInitializeAi();
-}
-
 function checkAndInitializeAi() {
     if (ai) return; // Already initialized
 
@@ -429,16 +445,95 @@ function toggleLoginViews(view: 'login' | 'register' | 'teacher') {
     loginView.classList.add('hidden');
     registerView.classList.add('hidden');
     teacherLoginView.classList.add('hidden');
+    loginError.classList.add('hidden');
+    registerError.classList.add('hidden');
+    teacherLoginError.classList.add('hidden');
+    registerSuccess.classList.add('hidden');
+
     if (view === 'login') loginView.classList.remove('hidden');
     if (view === 'register') registerView.classList.remove('hidden');
     if (view === 'teacher') teacherLoginView.classList.remove('hidden');
 }
 
-function handleLogin() { /* ... Logic to be re-enabled later ... */ }
-function handleRegister() { /* ... Logic to be re-enabled later ... */ }
-function handleTeacherLogin() { /* ... Logic to be re-enabled later ... */ }
+function handleLogin() {
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
+    loginError.classList.add('hidden');
+
+    if (!username || !password) {
+        loginError.textContent = "Kullanıcı adı ve şifre gereklidir.";
+        loginError.classList.remove('hidden');
+        return;
+    }
+
+    const users = getUsers();
+    const user = users.find((u: any) => u.username === username && u.password === password);
+
+    if (user) {
+        if (user.approved) {
+            currentUserId = user.username;
+            currentStudentName = user.username;
+            localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.username, studentName: user.username, userType: 'student' }));
+            initializeApp(); // Re-initialize to route to dashboard
+        } else {
+            loginError.textContent = "Hesabınız henüz öğretmen tarafından onaylanmadı.";
+            loginError.classList.remove('hidden');
+        }
+    } else {
+        loginError.textContent = "Geçersiz kullanıcı adı veya şifre.";
+        loginError.classList.remove('hidden');
+    }
+}
+
+function handleRegister() {
+    const username = registerUsernameInput.value.trim();
+    const password = registerPasswordInput.value.trim();
+    const confirmPassword = registerConfirmPasswordInput.value.trim();
+    registerError.classList.add('hidden');
+    registerSuccess.classList.add('hidden');
+
+    if (!username || !password || !confirmPassword) {
+        registerError.textContent = "Tüm alanlar zorunludur.";
+        registerError.classList.remove('hidden');
+        return;
+    }
+    if (password !== confirmPassword) {
+        registerError.textContent = "Şifreler eşleşmiyor.";
+        registerError.classList.remove('hidden');
+        return;
+    }
+    const users = getUsers();
+    if (users.some((u: any) => u.username === username)) {
+        registerError.textContent = "Bu kullanıcı adı zaten alınmış.";
+        registerError.classList.remove('hidden');
+        return;
+    }
+
+    users.push({ username, password, approved: false });
+    saveUsers(users);
+
+    registerSuccess.textContent = "Kayıt başarılı! Hesabınız öğretmen tarafından onaylandıktan sonra giriş yapabilirsiniz.";
+    registerSuccess.classList.remove('hidden');
+    registerUsernameInput.value = '';
+    registerPasswordInput.value = '';
+    registerConfirmPasswordInput.value = '';
+}
+
+function handleTeacherLogin() {
+    const password = teacherPasswordInput.value;
+    teacherLoginError.classList.add('hidden');
+
+    if (password === TEACHER_PASSWORD) {
+        currentUserId = 'teacher';
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: 'teacher', userType: 'teacher' }));
+        initializeApp(); // Re-initialize to route to teacher dashboard
+    } else {
+        teacherLoginError.textContent = "Geçersiz yönetici şifresi.";
+        teacherLoginError.classList.remove('hidden');
+    }
+}
+
 function logout() {
-    // For now, just reloads the page to the "bypassed" state
     localStorage.removeItem(SESSION_KEY);
     window.location.reload();
 }
@@ -1246,6 +1341,49 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
 
 // --- Teacher Specific Functions (to be filled in) ---
 function getCustomScenarios() { return []; } // Placeholder
+
+function renderRegistrationRequests() {
+    const users = getUsers();
+    const pendingUsers = users.filter((u: any) => !u.approved);
+    requestsListContainer.innerHTML = '';
+
+    if (pendingUsers.length === 0) {
+        requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Onay bekleyen öğrenci kaydı bulunmuyor.</p>';
+        return;
+    }
+
+    pendingUsers.forEach((user: any) => {
+        const requestElement = document.createElement('div');
+        requestElement.className = 'flex items-center justify-between bg-white p-4 rounded-lg shadow-sm';
+        requestElement.innerHTML = `
+            <div>
+                <p class="font-semibold text-gray-800">${user.username}</p>
+                <p class="text-sm text-gray-500">Onay bekliyor</p>
+            </div>
+            <button data-username="${user.username}" class="approve-button flex items-center justify-center rounded-lg h-10 px-4 bg-green-500 text-white font-semibold hover:bg-green-600 transition-all duration-300 shadow-sm hover:shadow-md">
+                <span class="material-symbols-outlined mr-2">check_circle</span>
+                <span>Onayla</span>
+            </button>
+        `;
+        requestsListContainer.appendChild(requestElement);
+    });
+
+    document.querySelectorAll('.approve-button').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const usernameToApprove = (e.currentTarget as HTMLElement).dataset.username!;
+            const allUsers = getUsers();
+            const user = allUsers.find((u: any) => u.username === usernameToApprove);
+            if (user) {
+                user.approved = true;
+                saveUsers(allUsers);
+                showNotification(`'${usernameToApprove}' adlı öğrenci onaylandı.`, 'success');
+                renderRegistrationRequests(); // Re-render the list
+            }
+        });
+    });
+}
+
+
 function renderTeacherDashboard() {
     // This function will render the content based on the activeTeacherTab
     Object.values(teacherDashboard.contents).forEach(content => content.classList.add('hidden'));
@@ -1264,7 +1402,7 @@ function renderTeacherDashboard() {
     // Render content for the active tab
     switch (activeTeacherTab) {
         case 'requests':
-            // renderRegistrationRequests();
+            renderRegistrationRequests();
             break;
         case 'simulations':
             // renderStudentSimulationsList();
