@@ -23,7 +23,6 @@ interface Resource {
 let ai: GoogleGenAI | null = null;
 let isDbConnected: boolean = false;
 const API_KEY_STORAGE_KEY = 'gemini_api_key';
-const FIREBASE_CONFIG_KEY = 'firebase_config';
 
 
 // --- Global State & Constants ---
@@ -269,12 +268,11 @@ function safeJsonParse<T>(key: string, defaultValue: T): T {
 }
 
 async function checkSessionAndRoute() {
-    // 1. Initialize services (AI and DB)
+    // 1. Initialize services (DB first, then AI)
+    isDbConnected = db.initializeFirebase();
+    
     const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
     if (savedApiKey) initializeAiClient(savedApiKey);
-
-    const savedDbConfig = safeJsonParse(FIREBASE_CONFIG_KEY, null);
-    if (savedDbConfig) isDbConnected = db.initializeFirebase(savedDbConfig);
 
     // 2. Check for an active session
     const session = safeJsonParse(SESSION_KEY, null);
@@ -286,10 +284,10 @@ async function checkSessionAndRoute() {
             currentStudentName = studentName;
             showScreen('studentDashboard');
         } else if (userType === 'teacher') {
-            // If DB is not set up, force teacher to settings tab
-            if (!isDbConnected) {
+            // If AI is not set up, force teacher to settings tab
+            if (!ai) {
                 activeTeacherTab = 'settings';
-                showNotification("Lütfen çok kullanıcılı erişim için veritabanını yapılandırın.", "info");
+                showNotification("Lütfen sistemi etkinleştirmek için Gemini API anahtarınızı girin.", "info");
             }
             showScreen('teacherDashboard');
         }
@@ -443,7 +441,7 @@ async function handleLogin() {
     loginError.classList.add('hidden');
 
     if (!isDbConnected) {
-        showNotification("Veritabanı bağlantısı yok. Lütfen öğretmenin sistemi yapılandırmasını sağlayın.", "error");
+        showNotification("Veritabanı bağlantısı kurulamadı. Lütfen daha sonra tekrar deneyin.", "error");
         return;
     }
     if (!username || !password) {
@@ -478,7 +476,7 @@ async function handleRegister() {
     registerSuccess.classList.add('hidden');
 
     if (!isDbConnected) {
-        showNotification("Veritabanı bağlantısı yok. Lütfen öğretmenin sistemi yapılandırmasını sağlayın.", "error");
+        showNotification("Veritabanı bağlantısı kurulamadı. Lütfen daha sonra tekrar deneyin.", "error");
         return;
     }
     if (!username || !password || !confirmPassword) {
@@ -1250,13 +1248,8 @@ function renderSettingsTab() {
     const currentKey = localStorage.getItem(API_KEY_STORAGE_KEY);
     const maskedKey = currentKey ? `•••••••••••••••••••••••••••••••${currentKey.slice(-4)}` : "Henüz ayarlanmadı.";
     
-    // Firebase Config Section
-    const dbStatus = isDbConnected 
-        ? `<p class="flex items-center text-green-600"><span class="material-symbols-outlined mr-2">check_circle</span>Bağlandı</p>` 
-        : `<p class="flex items-center text-red-600"><span class="material-symbols-outlined mr-2">error</span>Bağlantı Kurulamadı</p>`;
-
     teacherDashboard.contents.settings.innerHTML = `
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="max-w-xl mx-auto">
             <div class="bg-white/70 p-6 rounded-2xl shadow-xl">
                 <div class="flex items-center gap-3 mb-4"><span class="material-symbols-outlined text-4xl text-indigo-500">psychology</span><div><h3 class="text-2xl font-bold text-gray-800">Yapay Zeka Ayarları</h3><p class="text-gray-500">Gemini AI sistemini yapılandırın.</p></div></div>
                 <div class="mt-6 border-t pt-6">
@@ -1264,15 +1257,6 @@ function renderSettingsTab() {
                     <p class="text-xs text-gray-500 mb-2">Mevcut Anahtar: <span class="font-mono">${maskedKey}</span></p>
                     <input type="password" id="teacher-api-key-input" class="mt-1 block w-full rounded-lg" placeholder="Yeni API anahtarını buraya girin...">
                     <button id="teacher-save-api-key-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 bg-indigo-500 text-white font-semibold hover:bg-indigo-600"><span>API Anahtarını Kaydet</span></button>
-                </div>
-            </div>
-            <div class="bg-white/70 p-6 rounded-2xl shadow-xl">
-                <div class="flex items-center gap-3 mb-4"><span class="material-symbols-outlined text-4xl text-[var(--teacher-color)]">cloud</span><div><h3 class="text-2xl font-bold text-gray-800">Veritabanı Ayarları</h3><p class="text-gray-500">Cihazlar arası erişim için Firebase'i bağlayın.</p></div></div>
-                <div class="mt-6 border-t pt-6">
-                    <div class="flex justify-between items-center mb-2"><label class="block text-sm font-medium text-gray-700">Firebase Yapılandırması</label><div class="text-sm font-semibold">${dbStatus}</div></div>
-                    <p class="text-xs text-gray-500 mb-2">Firebase projenizin ayarlarından web app yapılandırma JSON nesnesini buraya yapıştırın.</p>
-                    <textarea id="teacher-firebase-config-input" class="mt-1 block w-full rounded-lg font-mono text-xs" rows="8" placeholder='{\n  "apiKey": "...",\n  "authDomain": "...",\n  ...\n}'></textarea>
-                    <button id="teacher-save-db-config-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600"><span>Veritabanını Bağla</span></button>
                 </div>
             </div>
         </div>`;
@@ -1290,29 +1274,6 @@ function renderSettingsTab() {
             renderSettingsTab();
         } else {
             showNotification("API anahtarı geçersiz. Lütfen kontrol edip tekrar girin.", "error");
-        }
-    });
-
-    document.getElementById('teacher-save-db-config-button')!.addEventListener('click', () => {
-        const input = document.getElementById('teacher-firebase-config-input') as HTMLTextAreaElement;
-        const configString = input.value.trim();
-        if (!configString) {
-            showNotification("Lütfen Firebase yapılandırmasını girin.", "error");
-            return;
-        }
-        try {
-            const config = JSON.parse(configString);
-            if (db.initializeFirebase(config)) {
-                localStorage.setItem(FIREBASE_CONFIG_KEY, JSON.stringify(config));
-                isDbConnected = true;
-                showNotification("Veritabanı başarıyla bağlandı!", "success");
-                renderSettingsTab(); // Re-render to show connected status
-            } else {
-                throw new Error("Initialization returned false.");
-            }
-        } catch (error) {
-            console.error("Firebase config error:", error);
-            showNotification("Geçersiz Firebase yapılandırması. Lütfen kontrol edin.", "error");
         }
     });
 }
@@ -1415,7 +1376,7 @@ async function handleSubmitSessionFeedback() {
     }
     
     const feedbackData = { feedback: feedbackText };
-    await db.setDataInSubcollection('students', reviewingStudentId, 'sessions', reviewingSessionId, feedbackData);
+    await db.updateDataInSubcollection('students', reviewingStudentId, 'sessions', reviewingSessionId, feedbackData);
     
     showNotification("Geri bildirim başarıyla kaydedildi!", "success");
     await showSessionDetailReview(reviewingStudentId, reviewingSessionId); // Refresh view
