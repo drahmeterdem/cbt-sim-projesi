@@ -27,6 +27,8 @@ const API_KEY_STORAGE_KEY = 'gemini_api_key';
 let currentStudentName: string = '';
 let currentUserId: string = ''; // Will now store username
 let reviewingStudentId: string = '';
+let reviewingSessionId: string = '';
+let reviewingUploadId: string = '';
 let currentScreen: keyof typeof screens | null = null;
 let activeTeacherTab: string = 'requests'; // Default to requests for teacher workflow
 let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
@@ -34,6 +36,8 @@ let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
 const TEACHER_PASSWORD = 'teacher3243';
 const USERS_KEY = 'cbt_sim_users_v2'; // v2 includes approval status
 const SESSION_KEY = 'cbt_sim_session_v1';
+const CUSTOM_SCENARIOS_KEY = 'cbt_custom_scenarios_v1';
+const RESOURCES_KEY = 'cbt_resources_v1';
 
 
 // --- DOM Element References ---
@@ -46,6 +50,7 @@ const screens = {
     sessionAnalysis: document.getElementById('session-analysis-screen')!,
     teacherDashboard: document.getElementById('teacher-dashboard-screen')!,
     teacherReview: document.getElementById('teacher-review-screen')!,
+    teacherUploadReview: document.getElementById('teacher-upload-review-screen')!,
 };
 
 // Welcome Screen
@@ -157,10 +162,24 @@ const teacherReview = {
     studentName: document.getElementById('review-student-name')!,
     problemDisplay: document.getElementById('review-problem-display')!,
     chatContainer: document.getElementById('review-chat-container')!,
-    feedbackSection: document.getElementById('review-feedback-section')!,
+    chartsContainer: document.getElementById('review-charts-container')!,
+    feedbackForm: document.getElementById('review-feedback-form')!,
+    existingFeedback: document.getElementById('existing-feedback-display')!,
     feedbackInput: document.getElementById('feedback-input') as HTMLInputElement,
     submitFeedbackButton: document.getElementById('submit-feedback-button')!,
 };
+
+const teacherUploadReview = {
+    screen: screens.teacherUploadReview,
+    backButton: document.getElementById('back-to-dashboard-from-upload-review')!,
+    studentName: document.getElementById('upload-review-student-name')!,
+    transcript: document.getElementById('upload-review-transcript')!,
+    analysis: document.getElementById('upload-review-analysis')!,
+    feedbackForm: document.getElementById('upload-feedback-form')!,
+    existingFeedback: document.getElementById('existing-upload-feedback-display')!,
+    feedbackInput: document.getElementById('upload-feedback-input') as HTMLTextAreaElement,
+    submitButton: document.getElementById('submit-upload-feedback-button')!,
+}
 
 
 // Modals
@@ -217,14 +236,6 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 
 // --- Database (LocalStorage) Helpers ---
 
-/**
- * Safely parses a JSON string from localStorage, with type validation.
- * If parsing fails or the data structure is incorrect, it returns a default value
- * and clears the corrupted item from localStorage.
- * @param key The localStorage key.
- * @param defaultValue The default value to return on failure.
- * @returns The parsed data or the default value.
- */
 function safeJsonParse<T>(key: string, defaultValue: T): T {
     try {
         const item = localStorage.getItem(key);
@@ -232,15 +243,11 @@ function safeJsonParse<T>(key: string, defaultValue: T): T {
             return defaultValue;
         }
         const parsed = JSON.parse(item);
-
-        // Validate if the default is an array and the parsed item is not.
         if (Array.isArray(defaultValue) && !Array.isArray(parsed)) {
             console.warn(`Data for key "${key}" was expected to be an array but was not. Clearing corrupted data.`, parsed);
             localStorage.removeItem(key);
             return defaultValue;
         }
-        
-        // Validate if the default is a non-null object and the parsed item is not.
         if (defaultValue !== null && typeof defaultValue === 'object' && !Array.isArray(defaultValue)) {
             if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
                 console.warn(`Data for key "${key}" was expected to be an object but was not. Clearing corrupted data.`, parsed);
@@ -248,7 +255,6 @@ function safeJsonParse<T>(key: string, defaultValue: T): T {
                 return defaultValue;
             }
         }
-
         return parsed as T;
     } catch (error) {
         console.warn(`Error parsing JSON from localStorage key "${key}". Clearing corrupted data.`, error);
@@ -258,13 +264,12 @@ function safeJsonParse<T>(key: string, defaultValue: T): T {
 }
 
 
-function getUsers(): any[] {
-    return safeJsonParse(USERS_KEY, []);
-}
-
-function saveUsers(users: any[]) {
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
+function getUsers(): any[] { return safeJsonParse(USERS_KEY, []); }
+function saveUsers(users: any[]) { localStorage.setItem(USERS_KEY, JSON.stringify(users)); }
+function getCustomScenarios(): Scenario[] { return safeJsonParse(CUSTOM_SCENARIOS_KEY, []); }
+function saveCustomScenarios(scenarios: Scenario[]) { localStorage.setItem(CUSTOM_SCENARIOS_KEY, JSON.stringify(scenarios)); }
+function getResources(): Resource[] { return safeJsonParse(RESOURCES_KEY, []); }
+function saveResources(resources: Resource[]) { localStorage.setItem(RESOURCES_KEY, JSON.stringify(resources)); }
 
 
 // --- Core App Logic ---
@@ -283,11 +288,15 @@ const scenarios: Scenario[] = [
     { id: '6', title: 'Genel Kaygı Bozukluğu', description: 'günlük hayattaki birçok farklı konu (iş, sağlık, aile) hakkında sürekli ve kontrol edilemeyen bir endişe hali yaşıyor.', profile: 'Elif, 40 yaşında bir öğretmen. "Ya olursa?" diye başlayan felaket senaryoları zihninde sürekli dönüyor. Bu endişeler nedeniyle geceleri uyumakta zorlanıyor ve sürekli bir gerginlik hissediyor. En kötü olasılığa odaklanma eğiliminde.', isCustom: false },
 ];
 
-const resources: Resource[] = [
-    { id: 'r1', title: 'Sosyal Kaygı Nedir?', url: '#', type: 'article', associatedScenarioIds: ['1'] },
-    { id: 'r2', title: 'Ertelemeyle Başa Çıkma Yolları', url: '#', type: 'video', associatedScenarioIds: ['2'] },
-    { id: 'r3', title: 'Panik Atak Anında Nefes Egzersizleri', url: '#', type: 'pdf', associatedScenarioIds: ['3'] },
-];
+let allResources: Resource[] = getResources();
+if (allResources.length === 0) {
+    allResources = [
+        { id: 'r1', title: 'Sosyal Kaygı Nedir?', url: '#', type: 'article', associatedScenarioIds: ['1'] },
+        { id: 'r2', title: 'Ertelemeyle Başa Çıkma Yolları', url: '#', type: 'video', associatedScenarioIds: ['2'] },
+        { id: 'r3', title: 'Panik Atak Anında Nefes Egzersizleri', url: '#', type: 'pdf', associatedScenarioIds: ['3'] },
+    ];
+    saveResources(allResources);
+}
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -300,19 +309,16 @@ function checkSessionAndRoute() {
     if (session) {
         const { userId, userType, studentName } = session;
         currentUserId = userId;
-
         const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
         if (savedApiKey) {
-            initializeAiClient(savedApiKey); // Attempt to initialize AI
+            initializeAiClient(savedApiKey);
         }
-
         if (userType === 'student') {
             currentStudentName = studentName;
             showScreen('studentDashboard');
         } else if (userType === 'teacher') {
-            // **FIX:** The reliable check is whether the AI client is active, not if a key merely exists.
             if (!ai) {
-                activeTeacherTab = 'settings'; // Force teacher to settings if AI is not configured
+                activeTeacherTab = 'settings';
             }
             showScreen('teacherDashboard');
         }
@@ -335,7 +341,6 @@ function initializeAiClient(apiKey: string): boolean {
     } catch (error) {
         console.error("Failed to initialize GoogleGenAI with provided key:", error);
         ai = null;
-        // Do not remove the key here, let the user decide in settings
         return false;
     }
 }
@@ -348,21 +353,14 @@ function showScreen(screenId: keyof typeof screens) {
     screens[screenId].classList.remove('hidden');
     updateHeader();
 
-    // Load data for the specific screen
-    if (screenId === 'studentDashboard') {
-        renderStudentDashboard();
-    }
-    if (screenId === 'teacherDashboard') {
-        renderTeacherDashboard();
-    }
-    if (screenId === 'problemSelection') {
-        renderProblemSelection();
-    }
+    if (screenId === 'studentDashboard') renderStudentDashboard();
+    if (screenId === 'teacherDashboard') renderTeacherDashboard();
+    if (screenId === 'problemSelection') renderProblemSelection();
 }
 
 function updateHeader() {
     const isStudentScreen = ['studentDashboard', 'problemSelection', 'simulation', 'sessionAnalysis'].includes(currentScreen!);
-    const isTeacherScreen = ['teacherDashboard', 'teacherReview'].includes(currentScreen!);
+    const isTeacherScreen = ['teacherDashboard', 'teacherReview', 'teacherUploadReview'].includes(currentScreen!);
 
     if (isStudentScreen || isTeacherScreen) {
         logoutButton.classList.remove('hidden');
@@ -392,10 +390,7 @@ function updateHeader() {
 
 // --- Event Listeners Setup ---
 function setupEventListeners() {
-    // Welcome Screen
     goToLoginButton.addEventListener('click', () => showScreen('login'));
-    
-    // Login/Register
     loginButton.addEventListener('click', handleLogin);
     registerButton.addEventListener('click', handleRegister);
     teacherLoginButton.addEventListener('click', handleTeacherLogin);
@@ -403,19 +398,13 @@ function setupEventListeners() {
     showLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('login'); });
     showTeacherLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('teacher'); });
     showStudentLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('login'); });
-    
-    // Navigation
     logoutButton.addEventListener('click', logout);
     backToSelectionButton.addEventListener('click', () => showScreen('problemSelection'));
     saveProgressButton.addEventListener('click', saveSessionProgress);
     goToAnalysisButton.addEventListener('click', () => showScreen('sessionAnalysis'));
-
-    // Analysis Screen
     analysis.analyzeButton.addEventListener('click', handleAnalyzeTranscript);
     analysis.backButton.addEventListener('click', () => showScreen('studentDashboard'));
     analysis.sendButton.addEventListener('click', handleSendAnalysisToTeacher);
-    
-    // Simulation Screen
     simulation.sendCustomResponseButton.addEventListener('click', () => {
         const text = simulation.customResponseInput.value.trim();
         if (text) {
@@ -425,12 +414,8 @@ function setupEventListeners() {
             showNotification('Lütfen bir yanıt yazın.', 'info');
         }
     });
-
-    // Modals
     rationaleModal.closeButton.addEventListener('click', () => rationaleModal.container.classList.add('hidden'));
     summaryModal.closeButton.addEventListener('click', () => summaryModal.container.classList.add('hidden'));
-    
-    // Teacher Dashboard
     teacherDashboard.tabs.forEach(tab => {
         tab.addEventListener('click', () => {
             const tabName = (tab as HTMLElement).dataset.tab!;
@@ -438,19 +423,31 @@ function setupEventListeners() {
             renderTeacherDashboard();
         });
     });
-
-    // Teacher Review Screen
     teacherReview.backToDashboardButton.addEventListener('click', () => showScreen('teacherDashboard'));
     teacherReview.backToSessionListButton.addEventListener('click', () => {
         teacherReview.detailView.classList.add('hidden');
         teacherReview.listView.classList.remove('hidden');
     });
-
-    // Student QA with Teacher
+    teacherReview.submitFeedbackButton.addEventListener('click', handleSubmitSessionFeedback);
+    teacherUploadReview.backButton.addEventListener('click', () => showScreen('teacherDashboard'));
+    teacherUploadReview.submitButton.addEventListener('click', handleSubmitUploadFeedback);
     teacherQASystem.button.addEventListener('click', handleStudentQuestion);
 
-    // Event Delegation for Registration Requests
-    requestsListContainer.addEventListener('click', handleApproveRequest);
+    // Event Delegation
+    document.body.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        const approveButton = target.closest<HTMLButtonElement>('.approve-button');
+        const viewSessionsButton = target.closest<HTMLButtonElement>('.view-sessions-button');
+        const reviewSessionButton = target.closest<HTMLButtonElement>('.review-session-button');
+        const reviewUploadButton = target.closest<HTMLButtonElement>('.review-upload-button');
+        const replyQuestionButton = target.closest<HTMLButtonElement>('.reply-question-button');
+
+        if (approveButton) handleApproveRequest(approveButton.dataset.username!);
+        if (viewSessionsButton) showStudentSessionReviewList(viewSessionsButton.dataset.studentid!);
+        if (reviewSessionButton) showSessionDetailReview(reviewSessionButton.dataset.studentid!, reviewSessionButton.dataset.sessionid!);
+        if (reviewUploadButton) showUploadReviewDetail(reviewUploadButton.dataset.uploadid!);
+        if (replyQuestionButton) handleReplyToQuestion(replyQuestionButton.dataset.questionid!);
+    });
 }
 
 // --- Authentication & User Management ---
@@ -488,7 +485,7 @@ function handleLogin() {
             currentUserId = user.username;
             currentStudentName = user.username;
             localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.username, studentName: user.username, userType: 'student' }));
-            checkSessionAndRoute(); // Re-route to dashboard
+            checkSessionAndRoute();
         } else {
             loginError.textContent = "Hesabınız henüz öğretmen tarafından onaylanmadı.";
             loginError.classList.remove('hidden');
@@ -540,8 +537,6 @@ function handleTeacherLogin() {
     if (password === TEACHER_PASSWORD) {
         currentUserId = 'teacher';
         localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: 'teacher', userType: 'teacher' }));
-        
-        // After setting session, re-route. It will handle API key checks.
         checkSessionAndRoute();
     } else {
         teacherLoginError.textContent = "Geçersiz yönetici şifresi.";
@@ -553,7 +548,7 @@ function logout() {
     localStorage.removeItem(SESSION_KEY);
     currentUserId = '';
     currentStudentName = '';
-    ai = null; // Clear AI client on logout
+    ai = null;
     window.location.reload();
 }
 
@@ -567,7 +562,6 @@ function renderProblemSelection() {
         defaultContainer.appendChild(card);
     });
 
-    // Handle custom scenarios (if any)
     const customScenarios = getCustomScenarios();
     const customSection = document.getElementById('custom-scenarios-section')!;
     const customContainer = document.getElementById('custom-scenarios-container')!;
@@ -626,12 +620,12 @@ function startSimulation(scenario: Scenario) {
         "Bu konuda ne zamandır zorlanıyorsunuz?"
     ];
 
-    addMessageToChat('client', initialResponseText);
+    addMessageToChat(simulation.chatContainer, 'client', initialResponseText);
     chatHistory.push({ role: 'model', parts: [{ text: initialResponseText }] });
     renderOptions(initialOptions);
 }
 
-function addMessageToChat(sender: 'therapist' | 'client' | 'teacher', text: string, rationale: string | null = null, onRationaleClick: (() => void) | null = null) {
+function addMessageToChat(container: HTMLElement, sender: 'therapist' | 'client' | 'teacher', text: string, rationale: string | null = null, onRationaleClick: (() => void) | null = null) {
     const messageElement = document.createElement('div');
     const bubble = document.createElement('div');
     
@@ -645,18 +639,16 @@ function addMessageToChat(sender: 'therapist' | 'client' | 'teacher', text: stri
     
     messageElement.appendChild(bubble);
 
-    if (isTherapist && rationale) {
+    if (isTherapist && rationale && onRationaleClick) {
         const rationaleButton = document.createElement('button');
         rationaleButton.innerHTML = `<span class="material-symbols-outlined text-sm mr-1">lightbulb</span> Gerekçeyi Gör`;
         rationaleButton.className = 'text-xs text-indigo-600 hover:underline mt-1 ml-2';
-        rationaleButton.onclick = () => {
-            if (onRationaleClick) onRationaleClick();
-        };
+        rationaleButton.onclick = () => onRationaleClick();
         messageElement.appendChild(rationaleButton);
     }
     
-    simulation.chatContainer.appendChild(messageElement);
-    simulation.chatContainer.scrollTop = simulation.chatContainer.scrollHeight;
+    container.appendChild(messageElement);
+    container.scrollTop = container.scrollHeight;
 }
 
 
@@ -676,59 +668,37 @@ async function handleOptionSelection(therapistResponse: string, rationale: strin
 }
 
 async function handleTherapistResponse(therapistResponse: string, rationale: string | null = null) {
-    // Add therapist's message to chat
-    addMessageToChat('therapist', therapistResponse, rationale, () => {
+    addMessageToChat(simulation.chatContainer, 'therapist', therapistResponse, rationale, () => {
         if(rationale) showRationaleModal(rationale);
     });
-
-    // Add to history
     chatHistory.push({ role: 'user', parts: [{ text: therapistResponse }] });
 
-    // Disable all inputs (options and custom text)
     const options = document.querySelectorAll('.option-button');
     options.forEach(opt => (opt as HTMLButtonElement).disabled = true);
     simulation.customResponseInput.disabled = true;
     simulation.sendCustomResponseButton.disabled = true;
 
-    // Get AI response
     await getAiResponse(chatHistory, currentScenario!);
 }
 
 
 function updateSimulationUI(aiData: any) {
-    // Add client's response to chat
-    addMessageToChat('client', aiData.clientResponse);
-
-    // Update feedback section
+    addMessageToChat(simulation.chatContainer, 'client', aiData.clientResponse);
     simulation.feedbackSection.classList.remove('hidden');
     simulation.feedbackText.textContent = aiData.feedback;
-
-    // Update graphs
     updateScoreBars(aiData.scoring, aiData.clientImpact);
-
-    // Save scores for session summary
     sessionScores.push({ scoring: aiData.scoring, clientImpact: aiData.clientImpact });
-
-    // Render new options
     renderOptions(aiData.therapistOptions, aiData.rationale);
-    
-    // Re-enable custom input for the next turn
     simulation.customResponseInput.disabled = false;
     simulation.sendCustomResponseButton.disabled = false;
 }
 
 function updateScoreBars(scoring: any, clientImpact: any) {
-    const skillEmpathyBar = document.getElementById('skill-empathy-bar') as HTMLElement;
-    const skillTechniqueBar = document.getElementById('skill-technique-bar') as HTMLElement;
-    const skillRapportBar = document.getElementById('skill-rapport-bar') as HTMLElement;
-    const impactEmotionBar = document.getElementById('impact-emotion-bar') as HTMLElement;
-    const impactCognitionBar = document.getElementById('impact-cognition-bar') as HTMLElement;
-
-    skillEmpathyBar.style.width = `${scoring.empathy * 10}%`;
-    skillTechniqueBar.style.width = `${scoring.technique * 10}%`;
-    skillRapportBar.style.width = `${scoring.rapport * 10}%`;
-    impactEmotionBar.style.width = `${clientImpact.emotionalRelief * 10}%`;
-    impactCognitionBar.style.width = `${clientImpact.cognitiveClarity * 10}%`;
+    (document.getElementById('skill-empathy-bar') as HTMLElement).style.width = `${scoring.empathy * 10}%`;
+    (document.getElementById('skill-technique-bar') as HTMLElement).style.width = `${scoring.technique * 10}%`;
+    (document.getElementById('skill-rapport-bar') as HTMLElement).style.width = `${scoring.rapport * 10}%`;
+    (document.getElementById('impact-emotion-bar') as HTMLElement).style.width = `${clientImpact.emotionalRelief * 10}%`;
+    (document.getElementById('impact-cognition-bar') as HTMLElement).style.width = `${clientImpact.cognitiveClarity * 10}%`;
 }
 
 
@@ -736,7 +706,7 @@ function showLoaderWithOptions(show: boolean, text: string = "Yükleniyor...") {
     if (show) {
         simulation.optionsContainer.innerHTML = `<div class="col-span-1 md:col-span-2 flex items-center justify-center p-4 text-gray-600"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div><p class="ml-3">${text}</p></div>`;
     } else {
-        simulation.optionsContainer.innerHTML = ''; // Cleared before new options are rendered
+        simulation.optionsContainer.innerHTML = '';
     }
 }
 
@@ -787,7 +757,7 @@ function renderContinueSessionCard() {
 function renderProgressTracking() {
     if (sessionScores.length > 0) {
         progressTracking.card.classList.remove('hidden');
-        progressTracking.container.innerHTML = createChartHTML(calculateAverageScores(sessionScores), 'session');
+        progressTracking.container.innerHTML = createChartHTML(calculateAverageScores(sessionScores));
     } else {
         progressTracking.card.classList.add('hidden');
     }
@@ -799,14 +769,14 @@ function renderCumulativeProgress() {
         const allScores = allSessions.flatMap(s => s.scores);
         if (allScores.length > 0) {
             cumulativeProgress.card.classList.remove('hidden');
-            cumulativeProgress.container.innerHTML = createChartHTML(calculateAverageScores(allScores), 'cumulative');
+            cumulativeProgress.container.innerHTML = createChartHTML(calculateAverageScores(allScores));
             return;
         }
     }
      cumulativeProgress.card.classList.add('hidden');
 }
 
-function createChartHTML(scores: any, type: string): string {
+function createChartHTML(scores: any): string {
     return `
         <div class="space-y-2">
             <h5 class="font-semibold text-sm text-gray-700">Terapist Becerileri</h5>
@@ -837,7 +807,6 @@ function createBar(label: string, value: number, color: string): string {
 
 
 function renderAchievements() {
-    // Placeholder logic
     achievements.container.innerHTML = `
         <div class="flex flex-col items-center text-gray-400 opacity-60" title="İlk simülasyonunu tamamla"><span class="material-symbols-outlined text-5xl">workspace_premium</span><span class="text-xs mt-1">İlk Adım</span></div>
         <div class="flex flex-col items-center text-gray-400 opacity-60" title="5 simülasyon tamamla"><span class="material-symbols-outlined text-5xl">military_tech</span><span class="text-xs mt-1">Azimli</span></div>
@@ -853,7 +822,7 @@ function renderRecommendations() {
         return;
     }
     
-    const relevantResources = resources.filter(r => r.associatedScenarioIds.some(id => uniqueScenarioIds.includes(id)));
+    const relevantResources = getResources().filter(r => r.associatedScenarioIds.some(id => uniqueScenarioIds.includes(id)));
     
     if (relevantResources.length > 0) {
          relevantResources.forEach(resource => {
@@ -895,15 +864,9 @@ function renderQACard() {
 // --- Session Progress Management ---
 function saveSessionProgress() {
     if (currentScenario && chatHistory.length > 0) {
-        const sessionData = {
-            userId: currentUserId,
-            scenario: currentScenario,
-            history: chatHistory,
-            scores: sessionScores,
-            timestamp: new Date().toISOString()
-        };
-        localStorage.setItem(`session_${currentUserId}`, JSON.stringify(sessionData));
-        showNotification("İlerlemeniz başarıyla kaydedildi!", "success");
+        completeSession(); // Move current progress to long-term history
+        showNotification("İlerlemeniz kalıcı olarak kaydedildi ve seans tamamlandı!", "success");
+        setTimeout(() => showScreen('studentDashboard'), 1000);
     } else {
         showNotification("Kaydedilecek bir ilerleme yok.", "info");
     }
@@ -925,27 +888,24 @@ function resumeSession() {
         simulation.chatContainer.innerHTML = '';
         simulation.optionsContainer.innerHTML = '';
 
-        // Re-render chat history
         chatHistory.forEach(turn => {
             if (turn.role === 'user') {
                  try {
                     const lastModelTurn = chatHistory[chatHistory.indexOf(turn) - 1];
                     const lastModelResponse = JSON.parse(lastModelTurn.parts[0].text);
-                    addMessageToChat('therapist', turn.parts[0].text, lastModelResponse.rationale, () => showRationaleModal(lastModelResponse.rationale));
+                    addMessageToChat(simulation.chatContainer,'therapist', turn.parts[0].text, lastModelResponse.rationale, () => showRationaleModal(lastModelResponse.rationale));
                 } catch(e) {
-                    addMessageToChat('therapist', turn.parts[0].text);
+                    addMessageToChat(simulation.chatContainer,'therapist', turn.parts[0].text);
                 }
             } else if (turn.role === 'model') {
                  try {
                     const modelResponse = JSON.parse(turn.parts[0].text);
-                    addMessageToChat('client', modelResponse.clientResponse);
+                    addMessageToChat(simulation.chatContainer, 'client', modelResponse.clientResponse);
                 } catch(e) {
-                     addMessageToChat('client', turn.parts[0].text);
+                     addMessageToChat(simulation.chatContainer, 'client', turn.parts[0].text);
                 }
             }
         });
-
-        // Re-render last state
         try {
             const lastModelResponse = JSON.parse(chatHistory[chatHistory.length - 1].parts[0].text);
             updateSimulationUI(lastModelResponse);
@@ -964,7 +924,7 @@ function deleteSavedSession() {
 }
 
 function completeSession() {
-    // This function is called when a session ends (e.g., by saving and quitting, or reaching an end point)
+    if (!currentScenario || chatHistory.length === 0) return;
     const allSessions = getAllSessionsForStudent(currentUserId);
     const sessionData = {
         id: `sess_${Date.now()}`,
@@ -972,12 +932,12 @@ function completeSession() {
         scenario: currentScenario,
         history: chatHistory,
         scores: sessionScores,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        feedback: null
     };
     allSessions.push(sessionData);
     localStorage.setItem(`history_${currentUserId}`, JSON.stringify(allSessions));
 
-    // Clear current session data
     localStorage.removeItem(`session_${currentUserId}`);
     chatHistory = [];
     sessionScores = [];
@@ -994,13 +954,11 @@ async function handleAnalyzeTranscript() {
         showNotification("Sistem aktif değil. Lütfen öğretmenin API anahtarını yapılandırmasını sağlayın.", "error");
         return;
     }
-
     const transcript = analysis.transcriptInput.value;
     if (!transcript.trim()) {
         showNotification("Lütfen analiz için bir transkript girin.", "error");
         return;
     }
-    
     analysis.analyzeButton.disabled = true;
     analysis.analyzeButton.innerHTML = `<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> Analiz Ediliyor...`;
     analysis.output.innerHTML = '<p>Yapay zeka transkripti analiz ediyor, bu işlem biraz zaman alabilir...</p>';
@@ -1034,11 +992,7 @@ async function handleAnalyzeTranscript() {
 
         const rawText = response.text.trim();
         const jsonString = extractJsonFromString(rawText);
-
-        if (!jsonString) {
-            console.error("Invalid JSON structure received from AI for analysis:", rawText);
-            throw new Error("AI analysis response did not contain a valid JSON object.");
-        }
+        if (!jsonString) throw new Error("AI analysis response did not contain a valid JSON object.");
         
         try {
             const jsonResponse = JSON.parse(jsonString);
@@ -1046,9 +1000,6 @@ async function handleAnalyzeTranscript() {
             analysis.sendButton.classList.remove('hidden');
             currentAnalysisCache = { transcript, analysis: jsonResponse };
         } catch (parseError) {
-            console.error("Analysis Parse Error:", parseError);
-            console.error("Original raw text from AI for analysis:", rawText);
-            console.error("Extracted JSON string that failed to parse:", jsonString);
             throw new Error("Failed to parse the JSON data from the AI analysis.");
         }
 
@@ -1062,7 +1013,7 @@ async function handleAnalyzeTranscript() {
     }
 }
 
-function renderAnalysisOutput(data: any) {
+function renderAnalysisOutput(data: any, container: HTMLElement = analysis.output) {
     let html = `<h3>Genel Özet</h3><p>${data.overallSummary}</p>`;
     html += `<h3>Güçlü Yönler</h3><ul>${data.strengths.map((s: string) => `<li>${s}</li>`).join('')}</ul>`;
     html += `<h3>Geliştirilecek Alanlar</h3><ul>${data.areasForImprovement.map((s: string) => `<li>${s}</li>`).join('')}</ul>`;
@@ -1070,7 +1021,7 @@ function renderAnalysisOutput(data: any) {
     data.keyMomentsAnalysis.forEach((moment: any) => {
         html += `<h4>${moment.moment}</h4><p>${moment.analysis}</p>`;
     });
-    analysis.output.innerHTML = html;
+    container.innerHTML = html;
 }
 
 function handleSendAnalysisToTeacher() {
@@ -1094,9 +1045,7 @@ function handleSendAnalysisToTeacher() {
     currentAnalysisCache = null;
 }
 
-function getUploadedAnalyses() {
-    return safeJsonParse('uploaded_analyses', []);
-}
+function getUploadedAnalyses() { return safeJsonParse('uploaded_analyses', []); }
 
 // --- Student-Teacher Communication ---
 function handleStudentQuestion() {
@@ -1119,68 +1068,32 @@ function handleStudentQuestion() {
     showNotification("Sorunuz öğretmene iletildi.", "success");
 }
 
-function getAllQAs() {
-    return safeJsonParse('student_qas', []);
-}
-function getQAsForStudent(studentId: string) {
-    return getAllQAs().filter((qa: any) => qa.studentId === studentId);
-}
+function getAllQAs() { return safeJsonParse('student_qas', []); }
+function getQAsForStudent(studentId: string) { return getAllQAs().filter((qa: any) => qa.studentId === studentId); }
 
 
 // --- Utility Functions ---
-
-/**
- * Extracts a JSON object or array from a string that might contain other text.
- * It finds the first '{' or '[' and the last '}' or ']' and returns the substring between them.
- * @param text The string to search for JSON.
- * @returns The extracted JSON string, or null if no valid JSON structure is found.
- */
 function extractJsonFromString(text: string): string | null {
     let firstBracket = text.indexOf('{');
     let firstSquare = text.indexOf('[');
     let firstOpen = -1;
-
-    if (firstBracket > -1 && firstSquare > -1) {
-        firstOpen = Math.min(firstBracket, firstSquare);
-    } else if (firstBracket > -1) {
-        firstOpen = firstBracket;
-    } else {
-        firstOpen = firstSquare;
-    }
-
-    if (firstOpen === -1) {
-        return null; // No JSON object or array found
-    }
-
+    if (firstBracket > -1 && firstSquare > -1) firstOpen = Math.min(firstBracket, firstSquare);
+    else if (firstBracket > -1) firstOpen = firstBracket;
+    else firstOpen = firstSquare;
+    if (firstOpen === -1) return null;
     let lastBracket = text.lastIndexOf('}');
     let lastSquare = text.lastIndexOf(']');
     let lastClose = -1;
-    
-    if (lastBracket > -1 && lastSquare > -1) {
-        lastClose = Math.max(lastBracket, lastSquare);
-    } else if (lastBracket > -1) {
-        lastClose = lastBracket;
-    } else {
-        lastClose = lastSquare;
-    }
-
-    if (lastClose === -1 || lastClose < firstOpen) {
-        return null;
-    }
-
+    if (lastBracket > -1 && lastSquare > -1) lastClose = Math.max(lastBracket, lastSquare);
+    else if (lastBracket > -1) lastClose = lastBracket;
+    else lastClose = lastSquare;
+    if (lastClose === -1 || lastClose < firstOpen) return null;
     return text.substring(firstOpen, lastClose + 1);
 }
 
-
 function calculateAverageScores(scores: any[]) {
-    const totals = {
-        empathy: 0, technique: 0, rapport: 0,
-        emotionalRelief: 0, cognitiveClarity: 0,
-        count: scores.length
-    };
-
+    const totals = { empathy: 0, technique: 0, rapport: 0, emotionalRelief: 0, cognitiveClarity: 0, count: scores.length };
     if (totals.count === 0) return { empathy: 0, technique: 0, rapport: 0, emotionalRelief: 0, cognitiveClarity: 0 };
-
     scores.forEach(s => {
         totals.empathy += s.scoring.empathy;
         totals.technique += s.scoring.technique;
@@ -1188,7 +1101,6 @@ function calculateAverageScores(scores: any[]) {
         totals.emotionalRelief += s.clientImpact.emotionalRelief;
         totals.cognitiveClarity += s.clientImpact.cognitiveClarity;
     });
-
     return {
         empathy: totals.empathy / totals.count,
         technique: totals.technique / totals.count,
@@ -1198,25 +1110,13 @@ function calculateAverageScores(scores: any[]) {
     };
 }
 
-
 function showNotification(message: string, type: 'success' | 'error' | 'info') {
-    const colors = {
-        success: 'bg-green-500',
-        error: 'bg-red-500',
-        info: 'bg-blue-500',
-    };
-    const icon = {
-        success: 'check_circle',
-        error: 'error',
-        info: 'info',
-    };
-
+    const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500' };
+    const icon = { success: 'check_circle', error: 'error', info: 'info' };
     const notification = document.createElement('div');
     notification.className = `flex items-center gap-3 ${colors[type]} text-white p-4 rounded-lg shadow-lg animate-fade-in-up`;
     notification.innerHTML = `<span class="material-symbols-outlined">${icon[type]}</span><p>${message}</p>`;
-    
     notificationContainer.appendChild(notification);
-
     setTimeout(() => {
         notification.style.opacity = '0';
         notification.style.transform = 'translateY(10px)';
@@ -1225,69 +1125,41 @@ function showNotification(message: string, type: 'success' | 'error' | 'info') {
 }
 
 // --- AI Models ---
-
-/**
- * Wraps the Gemini API call in a retry loop to handle transient errors.
- * @param params The parameters for the generateContent call.
- * @param retries The number of times to retry on failure.
- * @returns The successful response from the AI.
- * @throws The last error if all retries fail.
- */
 async function generateContentWithRetry(params: any, retries = 3) {
-    if (!ai) {
-        throw new Error("AI client is not initialized. Please set the API key.");
-    }
-
+    if (!ai) throw new Error("AI client is not initialized. Please set the API key.");
     let lastError: any = null;
     for (let i = 0; i < retries; i++) {
         try {
             const response = await ai.models.generateContent(params);
-            // The .text getter will throw an error if the response is blocked.
-            // We also check if the text is empty.
-            if (!response.text || response.text.trim() === '') {
-                throw new Error("AI returned an empty or blocked response.");
-            }
-            return response; // Success
+            if (!response.text || response.text.trim() === '') throw new Error("AI returned an empty or blocked response.");
+            return response;
         } catch (error) {
             lastError = error;
             console.warn(`AI call attempt ${i + 1}/${retries} failed.`, error);
-            if (i < retries - 1) {
-                // Wait before retrying
-                await new Promise(resolve => setTimeout(resolve, 1500));
-            }
+            if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, 1500));
         }
     }
-    // If all retries fail, throw the last error
     throw lastError;
 }
 
-
 async function getAiResponse(history: any[], currentScenario: Scenario) {
     showLoaderWithOptions(true, "Yapay zeka düşünüyor...");
-    const model = 'gemini-2.5-flash';
-
-    // Create a clean history for the AI, only sending the text parts
     const cleanHistory = history.map(turn => {
         if (turn.role === 'model') {
              try {
-                // Attempt to parse the model's previous response to get just the clientResponse text
                 const modelResponse = JSON.parse(turn.parts[0].text);
                 return { role: 'model', parts: [{ text: modelResponse.clientResponse }] };
             } catch (e) {
-                // If parsing fails, it's likely the initial message, so use the text directly
                 return { role: 'model', parts: [{ text: turn.parts[0].text }] };
             }
         }
-        // User turns are already clean
         return turn;
     });
 
     try {
         const response = await generateContentWithRetry({
-            model: model,
-            contents: [
-                ...cleanHistory,
-            ],
+            model: 'gemini-2.5-flash',
+            contents: [...cleanHistory],
             config: {
                 systemInstruction: `${simulationSystemInstruction}\n\nDanışan Profili:\n${currentScenario.profile}`,
                 responseMimeType: "application/json",
@@ -1298,26 +1170,12 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
                         feedback: { type: Type.STRING },
                         rationale: { type: Type.STRING },
                         scoring: {
-                            type: Type.OBJECT,
-                            properties: {
-                                empathy: { type: Type.NUMBER },
-                                technique: { type: Type.NUMBER },
-                                rapport: { type: Type.NUMBER }
-                            },
-                            required: ['empathy', 'technique', 'rapport']
+                            type: Type.OBJECT, properties: { empathy: { type: Type.NUMBER }, technique: { type: Type.NUMBER }, rapport: { type: Type.NUMBER } }, required: ['empathy', 'technique', 'rapport']
                         },
                         clientImpact: {
-                            type: Type.OBJECT,
-                            properties: {
-                                emotionalRelief: { type: Type.NUMBER },
-                                cognitiveClarity: { type: Type.NUMBER }
-                            },
-                            required: ['emotionalRelief', 'cognitiveClarity']
+                            type: Type.OBJECT, properties: { emotionalRelief: { type: Type.NUMBER }, cognitiveClarity: { type: Type.NUMBER } }, required: ['emotionalRelief', 'cognitiveClarity']
                         },
-                        therapistOptions: {
-                            type: Type.ARRAY,
-                            items: { type: Type.STRING }
-                        }
+                        therapistOptions: { type: Type.ARRAY, items: { type: Type.STRING } }
                      },
                      required: ['clientResponse', 'feedback', 'rationale', 'scoring', 'clientImpact', 'therapistOptions']
                 }
@@ -1326,26 +1184,15 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
         
         const rawText = response.text.trim();
         const jsonString = extractJsonFromString(rawText);
-
-        if (!jsonString) {
-            console.error("Invalid JSON structure received from AI:", rawText);
-            throw new Error("AI response did not contain a valid JSON object.");
-        }
+        if (!jsonString) throw new Error("AI response did not contain a valid JSON object.");
         
         try {
             const jsonResponse = JSON.parse(jsonString);
-            
-            // Add AI's cleaned JSON response to history
             chatHistory.push({ role: 'model', parts: [{ text: jsonString }] });
-            
             updateSimulationUI(jsonResponse);
         } catch(parseError) {
-             console.error("AI Response Parse Error:", parseError);
-             console.error("Original raw text from AI:", rawText);
-             console.error("Extracted JSON string that failed to parse:", jsonString);
              throw new Error("Failed to parse the JSON data from the AI.");
         }
-
     } catch (error) {
         console.error("AI Response Error:", error);
         showLoaderWithOptions(false);
@@ -1354,69 +1201,50 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
     } 
 }
 
-// --- Teacher Specific Functions (to be filled in) ---
-function getCustomScenarios() { return []; } // Placeholder
+// --- Teacher Specific Functions ---
 
-function handleApproveRequest(e: MouseEvent) {
-    const target = e.target as HTMLElement;
-    const button = target.closest<HTMLButtonElement>('.approve-button');
-
-    if (button) {
-        const usernameToApprove = button.dataset.username;
-        if (usernameToApprove) {
-            const allUsers = getUsers();
-            const user = allUsers.find((u: any) => u.username === usernameToApprove);
-            if (user) {
-                user.approved = true;
-                saveUsers(allUsers);
-                showNotification(`'${usernameToApprove}' adlı öğrenci onaylandı.`, 'success');
-                renderRegistrationRequests(); // Re-render the list
-            }
+function handleApproveRequest(usernameToApprove: string) {
+    if (usernameToApprove) {
+        const allUsers = getUsers();
+        const user = allUsers.find((u: any) => u.username === usernameToApprove);
+        if (user) {
+            user.approved = true;
+            saveUsers(allUsers);
+            showNotification(`'${usernameToApprove}' adlı öğrenci onaylandı.`, 'success');
+            renderRegistrationRequests();
         }
     }
 }
-
 
 function renderRegistrationRequests() {
     const users = getUsers();
     const pendingUsers = users.filter((u: any) => !u.approved);
     requestsListContainer.innerHTML = '';
-
     if (pendingUsers.length === 0) {
         requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Onay bekleyen öğrenci kaydı bulunmuyor.</p>';
         return;
     }
-
     pendingUsers.forEach((user: any) => {
         const requestElement = document.createElement('div');
         requestElement.className = 'flex items-center justify-between bg-white p-4 rounded-lg shadow-sm';
         requestElement.innerHTML = `
-            <div>
-                <p class="font-semibold text-gray-800">${user.username}</p>
-                <p class="text-sm text-gray-500">Onay bekliyor</p>
-            </div>
+            <div><p class="font-semibold text-gray-800">${user.username}</p><p class="text-sm text-gray-500">Onay bekliyor</p></div>
             <button data-username="${user.username}" class="approve-button flex items-center justify-center rounded-lg h-10 px-4 bg-green-500 text-white font-semibold hover:bg-green-600 transition-all duration-300 shadow-sm hover:shadow-md">
-                <span class="material-symbols-outlined mr-2">check_circle</span>
-                <span>Onayla</span>
+                <span class="material-symbols-outlined mr-2">check_circle</span><span>Onayla</span>
             </button>
         `;
         requestsListContainer.appendChild(requestElement);
     });
 }
 
-
 function renderSettingsTab() {
     const currentKey = localStorage.getItem(API_KEY_STORAGE_KEY);
     const maskedKey = currentKey ? `•••••••••••••••••••••••••••••••${currentKey.slice(-4)}` : "Henüz ayarlanmadı.";
-    
     teacherDashboard.contents.settings.innerHTML = `
         <div class="bg-white/70 p-6 rounded-2xl shadow-xl max-w-2xl mx-auto">
             <div class="flex items-center gap-3 mb-4">
                 <span class="material-symbols-outlined text-4xl text-[var(--teacher-color)]">settings</span>
-                <div>
-                    <h3 class="text-2xl font-bold text-gray-800">Sistem Ayarları</h3>
-                    <p class="text-gray-500">Yapay zeka sistemini yapılandırın.</p>
-                </div>
+                <div><h3 class="text-2xl font-bold text-gray-800">Sistem Ayarları</h3><p class="text-gray-500">Yapay zeka sistemini yapılandırın.</p></div>
             </div>
             <div class="mt-6 border-t pt-6">
                 <label for="teacher-api-key-input" class="block text-sm font-medium text-gray-700">Gemini API Anahtarı</label>
@@ -1427,9 +1255,7 @@ function renderSettingsTab() {
                     <span>API Anahtarını Kaydet</span>
                 </button>
             </div>
-        </div>
-    `;
-
+        </div>`;
     document.getElementById('teacher-save-api-key-button')!.addEventListener('click', () => {
         const input = document.getElementById('teacher-api-key-input') as HTMLInputElement;
         const newKey = input.value.trim();
@@ -1437,20 +1263,363 @@ function renderSettingsTab() {
             showNotification("Lütfen bir API anahtarı girin.", "error");
             return;
         }
-        
         if (initializeAiClient(newKey)) {
             showNotification("API anahtarı başarıyla güncellendi ve sistem aktif!", "success");
-            input.value = ""; // Clear the input
-            renderSettingsTab(); // Re-render to show the new masked key
+            input.value = "";
+            renderSettingsTab();
         } else {
             showNotification("API anahtarı geçersiz. Lütfen kontrol edip tekrar girin.", "error");
         }
     });
 }
 
+// New Teacher Dashboard Functions
+function renderStudentSimulationsList() {
+    const students = getUsers().filter(u => u.approved);
+    const container = teacherDashboard.contents.simulations;
+    container.innerHTML = `<h3 class="text-xl font-bold text-gray-800 mb-4">Öğrenci Simülasyonları</h3>`;
+    if (students.length === 0) {
+        container.innerHTML += '<p class="text-center text-gray-500">İncelenecek öğrencisi olan simülasyon bulunmuyor.</p>';
+        return;
+    }
+    const studentList = document.createElement('div');
+    studentList.className = 'space-y-3';
+    students.forEach(student => {
+        studentList.innerHTML += `
+            <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
+                <p class="font-semibold text-gray-800">${student.username}</p>
+                <button data-studentid="${student.username}" class="view-sessions-button flex items-center justify-center rounded-lg h-10 px-4 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all">
+                    <span>Seansları Görüntüle</span><span class="material-symbols-outlined ml-2">arrow_forward</span>
+                </button>
+            </div>`;
+    });
+    container.appendChild(studentList);
+}
+
+function showStudentSessionReviewList(studentId: string) {
+    reviewingStudentId = studentId;
+    showScreen('teacherReview');
+    teacherReview.listView.classList.remove('hidden');
+    teacherReview.detailView.classList.add('hidden');
+    teacherReview.listStudentName.textContent = studentId;
+    const sessions = getAllSessionsForStudent(studentId);
+    teacherReview.sessionListContainer.innerHTML = '';
+    if (sessions.length === 0) {
+        teacherReview.sessionListContainer.innerHTML = '<p class="text-center text-gray-500">Bu öğrencinin tamamlanmış seansı bulunmuyor.</p>';
+        return;
+    }
+    sessions.reverse().forEach(session => { // Show newest first
+        teacherReview.sessionListContainer.innerHTML += `
+            <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
+                <div>
+                    <p class="font-semibold text-gray-800">${session.scenario.title}</p>
+                    <p class="text-sm text-gray-500">${new Date(session.timestamp).toLocaleString('tr-TR')}</p>
+                </div>
+                <button data-studentid="${studentId}" data-sessionid="${session.id}" class="review-session-button flex items-center justify-center rounded-lg h-10 px-4 bg-indigo-500 text-white font-semibold hover:bg-indigo-600">
+                    <span>İncele</span>
+                </button>
+            </div>`;
+    });
+}
+
+function showSessionDetailReview(studentId: string, sessionId: string) {
+    reviewingStudentId = studentId;
+    reviewingSessionId = sessionId;
+    const session = getAllSessionsForStudent(studentId).find(s => s.id === sessionId);
+    if (!session) return;
+
+    teacherReview.listView.classList.add('hidden');
+    teacherReview.detailView.classList.remove('hidden');
+    teacherReview.studentName.textContent = studentId;
+    teacherReview.problemDisplay.textContent = session.scenario.title;
+    teacherReview.chatContainer.innerHTML = '';
+
+    session.history.forEach((turn: any) => {
+        if (turn.role === 'user') {
+            addMessageToChat(teacherReview.chatContainer, 'therapist', turn.parts[0].text);
+        } else if (turn.role === 'model') {
+            try {
+                const modelResponse = JSON.parse(turn.parts[0].text);
+                addMessageToChat(teacherReview.chatContainer, 'client', modelResponse.clientResponse);
+            } catch (e) {
+                addMessageToChat(teacherReview.chatContainer, 'client', turn.parts[0].text);
+            }
+        }
+    });
+
+    teacherReview.chartsContainer.innerHTML = createChartHTML(calculateAverageScores(session.scores));
+    
+    teacherReview.feedbackInput.value = session.feedback || '';
+    if (session.feedback) {
+        teacherReview.existingFeedback.innerHTML = `<h5 class="font-semibold text-sm text-gray-700 mb-2">Mevcut Geri Bildiriminiz:</h5><p class="text-sm p-3 bg-amber-50 rounded-lg">${session.feedback}</p>`;
+    } else {
+        teacherReview.existingFeedback.innerHTML = '';
+    }
+}
+
+function handleSubmitSessionFeedback() {
+    const feedbackText = teacherReview.feedbackInput.value.trim();
+    if (!feedbackText) {
+        showNotification("Lütfen bir geri bildirim yazın.", "error");
+        return;
+    }
+    const allStudentSessions = getAllSessionsForStudent(reviewingStudentId);
+    const sessionIndex = allStudentSessions.findIndex(s => s.id === reviewingSessionId);
+    if (sessionIndex > -1) {
+        allStudentSessions[sessionIndex].feedback = feedbackText;
+        localStorage.setItem(`history_${reviewingStudentId}`, JSON.stringify(allStudentSessions));
+        showNotification("Geri bildirim başarıyla kaydedildi!", "success");
+        showSessionDetailReview(reviewingStudentId, reviewingSessionId); // Refresh view
+    }
+}
+
+
+function renderUploadedAnalysesList() {
+    const uploads = getUploadedAnalyses();
+    const container = teacherDashboard.contents.uploads.querySelector('#uploads-list-container')!;
+    container.innerHTML = '';
+    if (uploads.length === 0) {
+        container.innerHTML = '<p class="text-center text-gray-500">Öğrenciler tarafından yüklenmiş seans bulunmuyor.</p>';
+        return;
+    }
+    uploads.reverse().forEach(upload => {
+        container.innerHTML += `
+            <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
+                <div>
+                    <p class="font-semibold text-gray-800">Öğrenci: ${upload.studentId}</p>
+                    <p class="text-sm text-gray-500">${new Date(upload.timestamp).toLocaleString('tr-TR')}</p>
+                </div>
+                <button data-uploadid="${upload.id}" class="review-upload-button flex items-center justify-center rounded-lg h-10 px-4 bg-teal-500 text-white font-semibold hover:bg-teal-600">
+                    <span>İncele</span>
+                </button>
+            </div>`;
+    });
+}
+
+function showUploadReviewDetail(uploadId: string) {
+    reviewingUploadId = uploadId;
+    const upload = getUploadedAnalyses().find(u => u.id === uploadId);
+    if (!upload) return;
+
+    showScreen('teacherUploadReview');
+    teacherUploadReview.studentName.textContent = upload.studentId;
+    teacherUploadReview.transcript.textContent = upload.transcript;
+    renderAnalysisOutput(upload.analysis, teacherUploadReview.analysis);
+
+    teacherUploadReview.feedbackInput.value = upload.feedback || '';
+     if (upload.feedback) {
+        teacherUploadReview.existingFeedback.innerHTML = `<h5 class="font-semibold text-sm text-gray-700 mb-2">Mevcut Geri Bildiriminiz:</h5><p class="text-sm p-3 bg-amber-50 rounded-lg">${upload.feedback}</p>`;
+    } else {
+        teacherUploadReview.existingFeedback.innerHTML = '';
+    }
+}
+
+function handleSubmitUploadFeedback() {
+    const feedbackText = teacherUploadReview.feedbackInput.value.trim();
+    if (!feedbackText) {
+        showNotification("Lütfen bir geri bildirim yazın.", "error");
+        return;
+    }
+    const allUploads = getUploadedAnalyses();
+    const uploadIndex = allUploads.findIndex(u => u.id === reviewingUploadId);
+    if (uploadIndex > -1) {
+        allUploads[uploadIndex].feedback = feedbackText;
+        localStorage.setItem('uploaded_analyses', JSON.stringify(allUploads));
+        showNotification("Geri bildirim başarıyla kaydedildi!", "success");
+        showUploadReviewDetail(reviewingUploadId); // Refresh view
+    }
+}
+
+function renderStudentQuestions() {
+    const questions = getAllQAs();
+    const container = teacherDashboard.contents.questions.querySelector('#questions-list-container')!;
+    container.innerHTML = '';
+    if (questions.length === 0) {
+        container.innerHTML = '<p class="text-center text-gray-500">Henüz öğrenci sorusu bulunmuyor.</p>';
+        return;
+    }
+    questions.reverse().forEach(qa => {
+        container.innerHTML += `
+            <div class="bg-white p-4 rounded-lg shadow-sm">
+                <div class="flex justify-between items-start">
+                    <p class="text-sm text-gray-500">Öğrenci: <span class="font-bold text-gray-700">${qa.studentId}</span></p>
+                    <p class="text-xs text-gray-400">${new Date(qa.timestamp).toLocaleString('tr-TR')}</p>
+                </div>
+                <p class="mt-2 p-3 bg-gray-50 rounded-md">${qa.question}</p>
+                <div class="mt-3">
+                    ${qa.answer ? 
+                        `<p class="text-sm font-semibold text-amber-700">Sizin Yanıtınız:</p><p class="p-3 bg-amber-50 rounded-md text-sm">${qa.answer}</p>` :
+                        `<div class="flex gap-2"><textarea id="reply-input-${qa.id}" class="flex-grow rounded-lg border-gray-300 text-sm" placeholder="Yanıtınızı buraya yazın..."></textarea><button data-questionid="${qa.id}" class="reply-question-button rounded-lg px-4 bg-green-500 text-white font-semibold hover:bg-green-600">Yanıtla</button></div>`
+                    }
+                </div>
+            </div>`;
+    });
+}
+
+function handleReplyToQuestion(questionId: string) {
+    const input = document.getElementById(`reply-input-${questionId}`) as HTMLTextAreaElement;
+    const answer = input.value.trim();
+    if (!answer) {
+        showNotification("Lütfen bir yanıt yazın.", "error");
+        return;
+    }
+    const allQAs = getAllQAs();
+    const qaIndex = allQAs.findIndex(q => q.id === questionId);
+    if (qaIndex > -1) {
+        allQAs[qaIndex].answer = answer;
+        localStorage.setItem('student_qas', JSON.stringify(allQAs));
+        showNotification("Yanıtınız öğrenciye iletildi.", "success");
+        renderStudentQuestions();
+    }
+}
+
+function renderClassAnalytics() {
+    const container = teacherDashboard.contents.analytics;
+    const students = getUsers().filter(u => u.approved);
+    const allSessions = students.flatMap(student => getAllSessionsForStudent(student.username));
+    const allScores = allSessions.flatMap(s => s.scores);
+    
+    const totalSimulations = allSessions.length;
+    let mostPracticed = 'N/A';
+    if(totalSimulations > 0) {
+        const scenarioCounts = allSessions.reduce((acc, session) => {
+            acc[session.scenario.title] = (acc[session.scenario.title] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        mostPracticed = Object.keys(scenarioCounts).reduce((a, b) => scenarioCounts[a] > scenarioCounts[b] ? a : b);
+    }
+
+    const averageScores = calculateAverageScores(allScores);
+
+    container.innerHTML = `
+        <h3 class="text-xl font-bold text-gray-800 mb-6 text-center">Sınıf Geneli Analitiği</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <span class="material-symbols-outlined text-4xl text-indigo-500">group</span>
+                <p class="text-3xl font-bold text-gray-800 mt-2">${students.length}</p>
+                <p class="text-gray-500">Onaylı Öğrenci</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <span class="material-symbols-outlined text-4xl text-teal-500">psychology</span>
+                <p class="text-3xl font-bold text-gray-800 mt-2">${totalSimulations}</p>
+                <p class="text-gray-500">Tamamlanan Simülasyon</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <span class="material-symbols-outlined text-4xl text-pink-500">star</span>
+                 <p class="text-lg font-bold text-gray-800 mt-2">${mostPracticed}</p>
+                <p class="text-gray-500">En Popüler Senaryo</p>
+            </div>
+        </div>
+        <div class="mt-8 bg-white p-6 rounded-lg shadow-md">
+            <h4 class="text-lg font-bold text-gray-800 mb-4 text-center">Sınıf Ortalamaları</h4>
+            ${createChartHTML(averageScores)}
+        </div>
+    `;
+}
+
+function renderScenarioBuilder() {
+    const container = teacherDashboard.contents.builder;
+    container.innerHTML = `
+        <h3 class="text-xl font-bold text-gray-800 mb-4">Yeni Senaryo Oluştur</h3>
+        <div class="space-y-4">
+            <div><label class="block text-sm font-medium">Başlık</label><input type="text" id="builder-title" class="w-full rounded-lg"></div>
+            <div><label class="block text-sm font-medium">Açıklama (Öğrencinin göreceği kısa tanım)</label><textarea id="builder-desc" class="w-full rounded-lg" rows="3"></textarea></div>
+            <div><label class="block text-sm font-medium">Danışan Profili (Yapay zekanın canlandıracağı detaylı profil)</label><textarea id="builder-profile" class="w-full rounded-lg" rows="5"></textarea></div>
+            <button id="save-scenario-button" class="w-full h-12 px-6 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600">Senaryoyu Kaydet</button>
+        </div>`;
+    
+    document.getElementById('save-scenario-button')!.addEventListener('click', () => {
+        const title = (document.getElementById('builder-title') as HTMLInputElement).value.trim();
+        const description = (document.getElementById('builder-desc') as HTMLTextAreaElement).value.trim();
+        const profile = (document.getElementById('builder-profile') as HTMLTextAreaElement).value.trim();
+        if (!title || !description || !profile) {
+            showNotification("Tüm alanlar zorunludur.", "error");
+            return;
+        }
+        const customScenarios = getCustomScenarios();
+        customScenarios.push({
+            id: `custom_${Date.now()}`,
+            title, description, profile,
+            isCustom: true
+        });
+        saveCustomScenarios(customScenarios);
+        showNotification("Özel senaryo başarıyla kaydedildi!", "success");
+        (document.getElementById('builder-title') as HTMLInputElement).value = '';
+        (document.getElementById('builder-desc') as HTMLTextAreaElement).value = '';
+        (document.getElementById('builder-profile') as HTMLTextAreaElement).value = '';
+    });
+}
+
+function renderResourceLibrary() {
+    const container = teacherDashboard.contents.library;
+    let allScenarios = [...scenarios, ...getCustomScenarios()];
+
+    let scenarioOptions = allScenarios.map(s => `<option value="${s.id}">${s.title}</option>`).join('');
+
+    container.innerHTML = `
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div>
+                <h3 class="text-xl font-bold text-gray-800 mb-4">Mevcut Kaynaklar</h3>
+                <div id="resource-list" class="space-y-3 max-h-96 overflow-y-auto"></div>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow-inner">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">Yeni Kaynak Ekle</h3>
+                <div class="space-y-4">
+                     <div><label class="block text-sm font-medium">Başlık</label><input type="text" id="resource-title" class="w-full rounded-lg"></div>
+                     <div><label class="block text-sm font-medium">URL</label><input type="text" id="resource-url" class="w-full rounded-lg"></div>
+                     <div><label class="block text-sm font-medium">Tür</label><select id="resource-type" class="w-full rounded-lg"><option value="article">Makale</option><option value="video">Video</option><option value="pdf">PDF</option></select></div>
+                     <div><label class="block text-sm font-medium">İlişkili Senaryolar</label><select id="resource-scenarios" class="w-full rounded-lg" multiple>${scenarioOptions}</select></div>
+                     <button id="save-resource-button" class="w-full h-12 px-6 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600">Kaynağı Kaydet</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const renderList = () => {
+        const listContainer = document.getElementById('resource-list')!;
+        listContainer.innerHTML = '';
+        getResources().forEach(r => {
+            listContainer.innerHTML += `
+                <div class="flex items-center justify-between bg-white p-3 rounded-md shadow-sm">
+                    <div>
+                        <p class="font-semibold">${r.title}</p>
+                        <p class="text-xs text-gray-500">${r.url}</p>
+                    </div>
+                    <button class="delete-resource-button text-red-500 hover:text-red-700" data-id="${r.id}"><span class="material-symbols-outlined">delete</span></button>
+                </div>`;
+        });
+        document.querySelectorAll('.delete-resource-button').forEach(btn => btn.addEventListener('click', (e) => {
+            const id = (e.currentTarget as HTMLElement).dataset.id!;
+            let currentResources = getResources();
+            currentResources = currentResources.filter(res => res.id !== id);
+            saveResources(currentResources);
+            renderList();
+        }));
+    };
+    
+    document.getElementById('save-resource-button')!.addEventListener('click', () => {
+        const title = (document.getElementById('resource-title') as HTMLInputElement).value.trim();
+        const url = (document.getElementById('resource-url') as HTMLInputElement).value.trim();
+        const type = (document.getElementById('resource-type') as HTMLSelectElement).value as 'article' | 'video' | 'pdf';
+        const scenarioIds = Array.from((document.getElementById('resource-scenarios') as HTMLSelectElement).selectedOptions).map(opt => opt.value);
+        if (!title || !url) {
+            showNotification("Başlık ve URL zorunludur.", "error");
+            return;
+        }
+        const currentResources = getResources();
+        currentResources.push({ id: `res_${Date.now()}`, title, url, type, associatedScenarioIds: scenarioIds });
+        saveResources(currentResources);
+        showNotification("Kaynak kaydedildi.", "success");
+        (document.getElementById('resource-title') as HTMLInputElement).value = '';
+        (document.getElementById('resource-url') as HTMLInputElement).value = '';
+        renderList();
+    });
+
+    renderList();
+}
+
 
 function renderTeacherDashboard() {
-    // This function will render the content based on the activeTeacherTab
     Object.values(teacherDashboard.contents).forEach(content => content.classList.add('hidden'));
     teacherDashboard.tabs.forEach(tab => {
         const tabName = (tab as HTMLElement).dataset.tab!;
@@ -1464,31 +1633,14 @@ function renderTeacherDashboard() {
         }
     });
 
-    // Render content for the active tab
     switch (activeTeacherTab) {
-        case 'requests':
-            renderRegistrationRequests();
-            break;
-        case 'settings':
-            renderSettingsTab();
-            break;
-        case 'simulations':
-            // renderStudentSimulationsList();
-            break;
-        case 'uploads':
-            // renderUploadedAnalysesList();
-            break;
-        case 'questions':
-            // renderStudentQuestions();
-            break;
-        case 'analytics':
-            // renderClassAnalytics();
-            break;
-         case 'builder':
-            // renderScenarioBuilder();
-            break;
-         case 'library':
-            // renderResourceLibrary();
-            break;
+        case 'requests': renderRegistrationRequests(); break;
+        case 'settings': renderSettingsTab(); break;
+        case 'simulations': renderStudentSimulationsList(); break;
+        case 'uploads': renderUploadedAnalysesList(); break;
+        case 'questions': renderStudentQuestions(); break;
+        case 'analytics': renderClassAnalytics(); break;
+        case 'builder': renderScenarioBuilder(); break;
+        case 'library': renderResourceLibrary(); break;
     }
 }
