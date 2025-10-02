@@ -75,7 +75,7 @@ const loginButton = document.getElementById('login-button')! as HTMLButtonElemen
 const registerUsernameInput = document.getElementById('register-username-input') as HTMLInputElement;
 const registerPasswordInput = document.getElementById('register-password-input') as HTMLInputElement;
 const registerConfirmPasswordInput = document.getElementById('register-confirm-password-input') as HTMLInputElement;
-const registerButton = document.getElementById('register-button')!;
+const registerButton = document.getElementById('register-button')! as HTMLButtonElement;
 const teacherPasswordInput = document.getElementById('teacher-password-input') as HTMLInputElement;
 const teacherLoginButton = document.getElementById('teacher-login-button')! as HTMLButtonElement;
 const loginError = document.getElementById('login-error')!;
@@ -450,21 +450,33 @@ async function handleLogin() {
         return;
     }
 
-    const user = await db.getData('users', username);
+    loginButton.disabled = true;
+    loginButton.textContent = 'Giriş Yapılıyor...';
 
-    if (user && user.password === password) {
-        if (user.approved) {
-            currentUserId = user.username;
-            currentStudentName = user.username;
-            localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.username, studentName: user.username, userType: 'student' }));
-            await checkSessionAndRoute();
+    try {
+        const user = await db.getData('users', username);
+
+        if (user && user.password === password) {
+            if (user.approved) {
+                currentUserId = user.username;
+                currentStudentName = user.username;
+                localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.username, studentName: user.username, userType: 'student' }));
+                await checkSessionAndRoute();
+            } else {
+                loginError.textContent = "Hesabınız henüz öğretmen tarafından onaylanmadı.";
+                loginError.classList.remove('hidden');
+            }
         } else {
-            loginError.textContent = "Hesabınız henüz öğretmen tarafından onaylanmadı.";
+            loginError.textContent = "Geçersiz kullanıcı adı veya şifre.";
             loginError.classList.remove('hidden');
         }
-    } else {
-        loginError.textContent = "Geçersiz kullanıcı adı veya şifre.";
+    } catch (error) {
+        console.error("Login failed:", error);
+        loginError.textContent = "Giriş sırasında bir hata oluştu. Lütfen tekrar deneyin.";
         loginError.classList.remove('hidden');
+    } finally {
+        loginButton.disabled = false;
+        loginButton.textContent = 'Giriş Yap';
     }
 }
 
@@ -489,22 +501,35 @@ async function handleRegister() {
         registerError.classList.remove('hidden');
         return;
     }
+
+    registerButton.disabled = true;
+    registerButton.textContent = 'Kayıt Yapılıyor...';
     
-    const existingUser = await db.getData('users', username);
-    if (existingUser) {
-        registerError.textContent = "Bu kullanıcı adı zaten alınmış.";
+    try {
+        const existingUser = await db.getData('users', username);
+        if (existingUser) {
+            registerError.textContent = "Bu kullanıcı adı zaten alınmış.";
+            registerError.classList.remove('hidden');
+            return;
+        }
+
+        const newUser = { username, password, approved: false };
+        await db.setData('users', username, newUser);
+
+        registerSuccess.textContent = "Kayıt başarılı! Hesabınız öğretmen tarafından onaylandıktan sonra giriş yapabilirsiniz.";
+        registerSuccess.classList.remove('hidden');
+        registerUsernameInput.value = '';
+        registerPasswordInput.value = '';
+        registerConfirmPasswordInput.value = '';
+
+    } catch (error) {
+        console.error("Registration failed:", error);
+        registerError.textContent = "Kayıt sırasında bir hata oluştu. Lütfen tekrar deneyin.";
         registerError.classList.remove('hidden');
-        return;
+    } finally {
+        registerButton.disabled = false;
+        registerButton.textContent = 'Kayıt Ol';
     }
-
-    const newUser = { username, password, approved: false };
-    await db.setData('users', username, newUser);
-
-    registerSuccess.textContent = "Kayıt başarılı! Hesabınız öğretmen tarafından onaylandıktan sonra giriş yapabilirsiniz.";
-    registerSuccess.classList.remove('hidden');
-    registerUsernameInput.value = '';
-    registerPasswordInput.value = '';
-    registerConfirmPasswordInput.value = '';
 }
 
 async function handleTeacherLogin() {
