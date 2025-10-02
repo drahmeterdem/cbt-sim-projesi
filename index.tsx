@@ -217,16 +217,46 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 
 // --- Database (LocalStorage) Helpers ---
 
+/**
+ * Safely parses a JSON string from localStorage, with type validation.
+ * If parsing fails or the data structure is incorrect, it returns a default value
+ * and clears the corrupted item from localStorage.
+ * @param key The localStorage key.
+ * @param defaultValue The default value to return on failure.
+ * @returns The parsed data or the default value.
+ */
 function safeJsonParse<T>(key: string, defaultValue: T): T {
     try {
         const item = localStorage.getItem(key);
-        if (!item) return defaultValue;
-        return JSON.parse(item) as T;
+        if (!item || item === 'undefined') {
+            return defaultValue;
+        }
+        const parsed = JSON.parse(item);
+
+        // Validate if the default is an array and the parsed item is not.
+        if (Array.isArray(defaultValue) && !Array.isArray(parsed)) {
+            console.warn(`Data for key "${key}" was expected to be an array but was not. Clearing corrupted data.`, parsed);
+            localStorage.removeItem(key);
+            return defaultValue;
+        }
+        
+        // Validate if the default is a non-null object and the parsed item is not.
+        if (defaultValue !== null && typeof defaultValue === 'object' && !Array.isArray(defaultValue)) {
+            if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                console.warn(`Data for key "${key}" was expected to be an object but was not. Clearing corrupted data.`, parsed);
+                localStorage.removeItem(key);
+                return defaultValue;
+            }
+        }
+
+        return parsed as T;
     } catch (error) {
-        console.warn(`Error parsing JSON from localStorage key "${key}", returning default value.`, error);
+        console.warn(`Error parsing JSON from localStorage key "${key}". Clearing corrupted data.`, error);
+        localStorage.removeItem(key);
         return defaultValue;
     }
 }
+
 
 function getUsers(): any[] {
     return safeJsonParse(USERS_KEY, []);
@@ -273,15 +303,16 @@ function checkSessionAndRoute() {
 
         const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
         if (savedApiKey) {
-            initializeAiClient(savedApiKey);
+            initializeAiClient(savedApiKey); // Attempt to initialize AI
         }
 
         if (userType === 'student') {
             currentStudentName = studentName;
             showScreen('studentDashboard');
         } else if (userType === 'teacher') {
-            if (!savedApiKey) {
-                activeTeacherTab = 'settings'; // Force teacher to settings if no key
+            // **FIX:** The reliable check is whether the AI client is active, not if a key merely exists.
+            if (!ai) {
+                activeTeacherTab = 'settings'; // Force teacher to settings if AI is not configured
             }
             showScreen('teacherDashboard');
         }
