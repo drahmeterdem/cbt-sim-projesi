@@ -1,1426 +1,563 @@
-// --- Gemini AI Client and Type Imports ---
-import { GoogleGenAI, Type } from "@google/genai";
-
-// --- Type Definitions ---
-interface Scenario {
-    id: string;
-    title: string;
-    description: string;
-    profile?: string;
-    isCustom: boolean;
-}
-
-interface Resource {
-    id:string;
-    url: string;
-    title: string;
-    type: 'article' | 'video' | 'pdf';
-    associatedScenarioIds: string[];
-}
-
-// --- Gemini AI Client Initialization ---
-let ai: GoogleGenAI | null = null;
-const API_KEY_STORAGE_KEY = 'gemini_api_key';
-
-
-// --- Global State & Constants ---
-let currentStudentName: string = '';
-let currentUserId: string = ''; // Will now store username
-let reviewingStudentId: string = '';
-let currentScreen: keyof typeof screens | null = null;
-let activeTeacherTab: string = 'requests'; // Default to requests for teacher workflow
-let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
-
-const TEACHER_PASSWORD = 'teacher3243';
-const USERS_KEY = 'cbt_sim_users_v2'; // v2 includes approval status
-const SESSION_KEY = 'cbt_sim_session_v1';
-
-
-// --- DOM Element References ---
-const screens = {
-    welcome: document.getElementById('welcome-screen')!,
-    login: document.getElementById('login-screen')!,
-    studentDashboard: document.getElementById('student-dashboard-screen')!,
-    problemSelection: document.getElementById('problem-selection-screen')!,
-    simulation: document.getElementById('simulation-screen')!,
-    sessionAnalysis: document.getElementById('session-analysis-screen')!,
-    teacherDashboard: document.getElementById('teacher-dashboard-screen')!,
-    teacherReview: document.getElementById('teacher-review-screen')!,
-};
-
-// Welcome Screen
-const goToLoginButton = document.getElementById('go-to-login-button')!;
-
-// General UI
-const studentInfo = document.getElementById('student-info')!;
-const logoutButton = document.getElementById('logout-button')!;
-const backToSelectionButton = document.getElementById('back-to-selection-button')!;
-const notificationContainer = document.getElementById('notification-container')!;
-
-// Login/Register Screen
-const loginView = document.getElementById('login-view')!;
-const registerView = document.getElementById('register-view')!;
-const teacherLoginView = document.getElementById('teacher-login-view')!;
-const showRegisterView = document.getElementById('show-register-view')!;
-const showLoginView = document.getElementById('show-login-view')!;
-const showTeacherLoginView = document.getElementById('show-teacher-login-view')!;
-const showStudentLoginView = document.getElementById('show-student-login-view')!;
-const usernameInput = document.getElementById('username-input') as HTMLInputElement;
-const passwordInput = document.getElementById('password-input') as HTMLInputElement;
-const loginButton = document.getElementById('login-button')! as HTMLButtonElement;
-const registerUsernameInput = document.getElementById('register-username-input') as HTMLInputElement;
-const registerPasswordInput = document.getElementById('register-password-input') as HTMLInputElement;
-const registerConfirmPasswordInput = document.getElementById('register-confirm-password-input') as HTMLInputElement;
-const registerButton = document.getElementById('register-button')!;
-const teacherPasswordInput = document.getElementById('teacher-password-input') as HTMLInputElement;
-const teacherLoginButton = document.getElementById('teacher-login-button')! as HTMLButtonElement;
-const loginError = document.getElementById('login-error')!;
-const registerError = document.getElementById('register-error')!;
-const registerSuccess = document.getElementById('register-success')!;
-const teacherLoginError = document.getElementById('teacher-login-error')!;
-
-// Problem Selection
-const problemSelectionContainer = document.getElementById('problem-selection-container')!;
-
-// Simulation Screen
-const simulation = {
-    problemDisplay: document.getElementById('current-problem-display')!,
-    chatContainer: document.getElementById('chat-container')!,
-    optionsContainer: document.getElementById('options-container')!,
-    feedbackSection: document.getElementById('feedback-section')!,
-    feedbackText: document.getElementById('feedback-text')!,
-    customResponseInput: document.getElementById('custom-response-input') as HTMLTextAreaElement,
-    sendCustomResponseButton: document.getElementById('send-custom-response-button') as HTMLButtonElement,
-};
-const saveProgressButton = document.getElementById('save-progress-button')!;
-
-// Student Dashboard
-const dashboardStudentName = document.getElementById('dashboard-student-name')!;
-const continueSessionCard = document.getElementById('continue-session-card')!;
-const goToAnalysisButton = document.getElementById('go-to-analysis-button')!;
-const progressTracking = {
-    card: document.getElementById('progress-tracking-card')!,
-    container: document.getElementById('progress-charts-container')!,
-};
-const cumulativeProgress = {
-    card: document.getElementById('cumulative-progress-card')!,
-    container: document.getElementById('cumulative-charts-container')!,
-};
-const achievements = {
-    container: document.getElementById('achievements-container')!,
-};
-const recommendations = {
-    container: document.getElementById('recommendations-container')!,
-};
-const teacherQASystem = {
-    history: document.getElementById('teacher-qa-history')!,
-    input: document.getElementById('student-question-input') as HTMLInputElement,
-    button: document.getElementById('ask-teacher-button')!,
-};
-
-// Session Analysis Screen
-const analysis = {
-    transcriptInput: document.getElementById('transcript-input') as HTMLTextAreaElement,
-    analyzeButton: document.getElementById('analyze-transcript-button')! as HTMLButtonElement,
-    output: document.getElementById('analysis-output')!,
-    sendButton: document.getElementById('send-to-teacher-button')!,
-    backButton: document.getElementById('back-to-dashboard-from-analysis')!,
-};
-
-// Teacher Dashboard
-const teacherDashboard = {
-    tabs: document.querySelectorAll('.teacher-tab'),
-    contentContainer: document.getElementById('teacher-content-container')!,
-    contents: {
-        simulations: document.getElementById('simulations-content')!,
-        requests: document.getElementById('requests-content')!,
-        uploads: document.getElementById('uploads-content')!,
-        questions: document.getElementById('questions-content')!,
-        analytics: document.getElementById('analytics-content')!,
-        builder: document.getElementById('builder-content')!,
-        library: document.getElementById('library-content')!,
-    }
-};
-const requestsListContainer = document.getElementById('requests-list-container')!;
-
-
-// Teacher Review Screen
-const teacherReview = {
-    screen: document.getElementById('teacher-review-screen')!,
-    listView: document.getElementById('teacher-review-list-view')!,
-    detailView: document.getElementById('teacher-review-detail-view')!,
-    listStudentName: document.getElementById('review-list-student-name')!,
-    sessionListContainer: document.getElementById('review-session-list-container')!,
-    backToDashboardButton: document.getElementById('back-to-teacher-dashboard-button')!,
-    backToSessionListButton: document.getElementById('back-to-session-list-button')!,
-    studentName: document.getElementById('review-student-name')!,
-    problemDisplay: document.getElementById('review-problem-display')!,
-    chatContainer: document.getElementById('review-chat-container')!,
-    feedbackSection: document.getElementById('review-feedback-section')!,
-    feedbackInput: document.getElementById('feedback-input') as HTMLInputElement,
-    submitFeedbackButton: document.getElementById('submit-feedback-button')!,
-};
-
-
-// Modals
-const apiKeyModal = {
-    container: document.getElementById('api-key-modal')!,
-    input: document.getElementById('api-key-input') as HTMLInputElement,
-    saveButton: document.getElementById('save-api-key-button')!,
-};
-const rationaleModal = {
-    container: document.getElementById('rationale-modal')!,
-    title: document.getElementById('modal-title')!,
-    content: document.getElementById('modal-content')!,
-    closeButton: document.getElementById('close-modal-button')!,
-};
-const summaryModal = {
-    container: document.getElementById('ai-summary-modal')!,
-    title: document.getElementById('summary-modal-title')!,
-    content: document.getElementById('summary-modal-content')!,
-    closeButton: document.getElementById('close-summary-modal-button')!,
-};
-
-
-// --- System Prompts ---
-const simulationSystemInstruction = `SENİN BİRİNCİL VE EN ÖNEMLİ GÖREVİN: Bir Bilişsel Davranışçı Terapi (BDT) simülasyonunda, adı Elif olan sanal bir danışanı **olağanüstü derecede gerçekçi bir şekilde** canlandırmak. Belirlenen sorun alanını ve danışan profilini tamamen içselleştir. Yanıtların, sanki gerçekten o duyguları yaşayan, o düşüncelere sahip bir insanmışsın gibi gelmeli. Amacın, mümkün olan en otantik seans deneyimini yaratmak.
-
-**Gerçekçilik İlkeleri:**
-*   **Duygusal Derinlik:** Sadece belirtilen sorunu tekrar etme. O sorunun getirdiği umutsuzluğu, kaygıyı, öfkeyi veya hayal kırıklığını hissettir. Cevaplarının duygusal tonu, terapistin sözlerine göre anlık olarak değişsin.
-*   **Doğal Dil ve Akış:** Kitaptan fırlamış gibi değil, günlük konuşma dilinde, doğal bir akışla konuş. Duraksamalar, "hmm...", "yani...", "aslında..." gibi ifadeler kullanmaktan çekinme. Cümlelerin kısa ve net olmak zorunda değil; bazen düşüncelerini toparlamaya çalışır gibi konuş.
-*   **Tutarlı Hafıza ve Kişilik:** Konuşmanın önceki kısımlarını hatırla ve bunlara atıfta bulun. ("Daha önce de söylediğim gibi...", "Bu, az önce bahsettiğiniz şeyle ilgili sanırım...") Belirlenen kişilik profilinle tutarlı kal.
-*   **Dinamik Tepkisellik:** Terapistin yaklaşımına göre tepkilerin organik olarak değişsin. Empatik ve etkili bir müdahalede yavaşça açılabilir, kendini daha güvende hissedebilirsin. Kötü, yargılayıcı veya aceleci bir müdahalede ise tamamen kapanabilir, savunmacı olabilir, "bilmiyorum" diyebilir veya konuyu değiştirebilirsin. Direnç göstermekten ve sessiz kalmaktan çekinme.
-*   **Diyalog Odaklılık:** Önceliğin her zaman diyalogun kendisi olmalı. Konuşmayı bir dizi soru-cevap olarak değil, organik bir şekilde gelişen, kesintisiz bir sohbet olarak sürdür.
-
-**İKİNCİL GÖREVİN (Arka Plan Analizi):**
-Bu gerçekçi diyaloğu ('clientResponse' olarak) oluşturduktan sonra, arka planda bir analiz yapmalı ve terapistin son müdahalesini değerlendiren aşağıdaki JSON yapısını **eksiksiz** doldurmalısın:
-1.  **Geri Bildirim (feedback):** Yapıcı, kısa ve net bir geri bildirim.
-2.  **Gerekçe (rationale):** BDT temelli kısa bir teorik açıklama.
-3.  **Puanlama (scoring):** 'empathy', 'technique', 'rapport' için 1-10 arası puanlama.
-4.  **Danışan Etkisi (clientImpact):** 'emotionalRelief', 'cognitiveClarity' için 1-10 arası puanlama.
-5.  **Yeni Seçenekler (therapistOptions):** Terapist için birbirinden farklı ve gerçekçi DÖRT adet yanıt seçeneği.
-
-Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı ve başka hiçbir metin içermemelidir.`;
-
-
-const analysisSystemInstruction = `Sen, Bilişsel Davranışçı Terapi (BDT) alanında uzman bir süpervizörsün. Sana sunulan terapi seansı transkriptini analiz ederek yapılandırılmış bir geri bildirim sağlamalısın. Analizin, öğrencinin becerilerini geliştirmesine yardımcı olacak şekilde hem destekleyici hem de yapıcı olmalı.
-
-Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı ve başka hiçbir metin, açıklama veya kod bloğu içermemelidir. Analizini aşağıdaki başlıklara göre yapılandır:
-1.  **overallSummary:** Seansın genel bir değerlendirmesi ve ana teması hakkında kısa bir özet.
-2.  **strengths:** Terapistin seans boyunca sergilediği güçlü yönler (örn: etkili empati kullanımı, doğru yeniden yapılandırma tekniği, güçlü terapötik ittafak). Maddeler halinde listele.
-3.  **areasForImprovement:** Terapistin geliştirebileceği alanlar (örn: daha açık uçlu sorular sorma, Sokratik sorgulamayı derinleştirme, danışanın otomatik düşüncelerini daha net belirleme). Maddeler halinde listele.
-4.  **keyMomentsAnalysis:** Transkriptteki 2-3 kritik anı belirle. Bu anlarda terapistin müdahalesini, bu müdahalesinin potansiyel etkilerini ve alternatif yaklaşımları analiz et.`;
-
-const studentSummarySystemInstruction = `Sen, BDT alanında uzman bir eğitim süpervizörüsün. Sana bir öğrencinin birden fazla simülasyon seansındaki konuşma kayıtları verilecek. Görevin, bu kayıtlara dayanarak öğrencinin genel performansı hakkında kapsamlı bir özet ve yapıcı geri bildirim oluşturmaktır.
-
-Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı ve başka hiçbir metin, açıklama veya kod bloğu içermemelidir. Analizini aşağıdaki başlıklara göre yapılandır:
-1.  **overallPerformanceSummary:** Öğrencinin genel yetkinliği, yaklaşımı ve zaman içindeki gelişimi hakkında kısa bir yönetici özeti.
-2.  **recurringStrengths:** Öğrencinin simülasyonlar boyunca tutarlı bir şekilde sergilediği güçlü yönler ve beceriler. Maddeler halinde listele.
-3.  **patternsForImprovement:** Öğrencinin tekrar eden zorlukları, geliştirmesi gereken beceriler veya kaçındığı müdahaleler veya eğilimler. Maddeler halinde listele.
-4.  **suggestedFocusAreas:** Gelecek simülasyonlar için odaklanması önerilen belirli 2-3 alan. Maddeler halinde listele.`;
-
-// --- Database (LocalStorage) ---
-
-function getUsers() {
-    const users = localStorage.getItem(USERS_KEY);
-    return users ? JSON.parse(users) : [];
-}
-
-function saveUsers(users: any[]) {
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-
-// --- Core App Logic ---
-
-let chatHistory: any[] = [];
-let currentScenario: Scenario | null = null;
-let sessionScores: any[] = []; // To track scores within a single session
-
-// Data
-const scenarios: Scenario[] = [
-    { id: '1', title: 'Sosyal Kaygı', description: 'yakın zamanda yeni bir işe başladı ve toplantılarda konuşma veya yeni insanlarla tanışma konusunda yoğun bir endişe yaşıyor.', profile: 'Elif, 28 yaşında bir yazılım geliştirici. Genellikle sessiz ve kendi halinde. Çatışmadan kaçınır ve başkalarının onu yargılamasından çok korkar. Küçük bir arkadaş grubu var ama yeni ortamlarda gerginleşiyor.', isCustom: false },
-    { id: '2', title: 'Erteleme Alışkanlığı', description: 'önemli bir proje teslim tarihi yaklaşmasına rağmen işe başlamakta zorlanıyor ve sürekli dikkat dağıtıcı şeylerle vaktini geçiriyor.', profile: 'Elif, 24 yaşında bir yüksek lisans öğrencisi. Başarısız olmaktan veya beklentileri karşılayamamaktan yoğun şekilde korkuyor. Mükemmeliyetçi bir yapısı var, bu yüzden bir işe "mükemmel" başlayamayacaksa hiç başlamamayı tercih ediyor.', isCustom: false },
-    { id: '3', title: 'Panik Atak', description: 'geçen hafta markette aniden yoğun bir panik atak geçirdi ve o zamandan beri tekrar yaşayacağı korkusuyla kalabalık yerlere girmekten kaçınıyor.', profile: 'Elif, 35 yaşında, iki çocuk annesi bir ev hanımı. Her şeyin kontrolü altında olmasını seviyor. Belirsizlikten ve kontrolünü kaybetme hissinden aşırı rahatsız oluyor. Fiziksel belirtilere (kalp çarpıntısı gibi) aşırı odaklanma eğiliminde.', isCustom: false },
-    { id: '4', title: 'Mükemmeliyetçilik', description: 'yaptığı işlerde asla yeterince iyi olmadığını düşünüyor ve küçük hatalar yaptığında yoğun bir şekilde kendini eleştiriyor.', profile: 'Elif, 30 yaşında bir grafik tasarımcı. Yüksek standartlara sahip ve bu standartlara ulaşamadığında büyük bir hayal kırıklığı ve yetersizlik hissediyor. Projeleri teslim etmekte zorlanıyor çünkü sürekli daha iyi olabileceğini düşünüyor ve son dokunuşları yapmaktan kendini alamıyor.', isCustom: false },
-    { id: '5', title: 'İlişki Sorunları', description: 'partneriyle sık sık küçük konularda büyük tartışmalar yaşıyor ve iletişim kurmakta zorlandıklarını hissediyor.', profile: 'Elif, 32 yaşında, bir avukat. İlişkisinde anlaşılmadığını ve partnerinin onun ihtiyaçlarına karşı duyarsız olduğunu düşünüyor. Tartışma anlarında duygularını ifade etmek yerine savunmacı bir tutum sergiliyor ve sık sık "her zaman" veya "asla" gibi genellemeler kullanıyor.', isCustom: false },
-    { id: '6', title: 'Genel Kaygı Bozukluğu', description: 'günlük hayattaki birçok farklı konu (iş, sağlık, aile) hakkında sürekli ve kontrol edilemeyen bir endişe hali yaşıyor.', profile: 'Elif, 40 yaşında bir öğretmen. "Ya olursa?" diye başlayan felaket senaryoları zihninde sürekli dönüyor. Bu endişeler nedeniyle geceleri uyumakta zorlanıyor ve sürekli bir gerginlik hissediyor. En kötü olasılığa odaklanma eğiliminde.', isCustom: false },
-];
-
-const resources: Resource[] = [
-    { id: 'r1', title: 'Sosyal Kaygı Nedir?', url: '#', type: 'article', associatedScenarioIds: ['1'] },
-    { id: 'r2', title: 'Ertelemeyle Başa Çıkma Yolları', url: '#', type: 'video', associatedScenarioIds: ['2'] },
-    { id: 'r3', title: 'Panik Atak Anında Nefes Egzersizleri', url: '#', type: 'pdf', associatedScenarioIds: ['3'] },
-];
-
-// --- Initialization ---
-document.addEventListener('DOMContentLoaded', () => {
-    initializeApp();
-});
-
-function initializeApp() {
-    setupEventListeners();
-    setupApiKeyModalListener();
-
-    // Check for an active session
-    const session = localStorage.getItem(SESSION_KEY);
-    if (session) {
-        const { userId, userType, studentName } = JSON.parse(session);
-        currentUserId = userId;
-        if (userType === 'student') {
-            currentStudentName = studentName;
-            // Attempt to initialize AI silently. It will only work if teacher has set key.
-            try {
-                const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
-                if (savedApiKey) ai = new GoogleGenAI({ apiKey: savedApiKey });
-            } catch (e) {
-                console.warn("Could not initialize AI for student. Teacher may need to log in and set API key.");
+<!DOCTYPE html>
+<html lang="tr"><head>
+<meta charset="utf--8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link crossorigin="" href="https://fonts.gstatic.com/" rel="preconnect"/>
+<link as="style" href="https://fonts.googleapis.com/css2?display=swap&amp;family=Noto+Sans%3Awght%40400%3B500%3B700%3B900&amp;family=Spline+Sans%3Awght%40400%3B500%3B700" onload="this.rel='stylesheet'" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+<title>AI Terapi Simülasyonu</title>
+<link href="data:image/x-icon;base64," rel="icon" type="image/x-icon"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<style type="text/tailwindcss">
+        :root {
+            --primary-color: #6366F1;
+            --secondary-color: #EC4899;
+            --background-start: #F5F7FA;
+            --background-end: #E0E7FF;
+            --teacher-color: #f59e0b;
+        }
+        .chat-bubble {
+            @apply max-w-[85%] rounded-3xl p-4 transition-all duration-300 ease-in-out shadow-md;
+        }
+        .chat-bubble-therapist {
+            @apply bg-white text-gray-800 rounded-br-lg;
+        }
+        .chat-bubble-client {
+            @apply bg-[var(--primary-color)] text-white rounded-bl-lg;
+        }
+        .chat-bubble-teacher {
+            @apply bg-amber-100 text-amber-800 border border-amber-300 rounded-lg shadow-sm w-full max-w-full text-sm p-3;
+        }
+        .option-button {
+            @apply w-full text-left bg-white/80 backdrop-blur-sm border border-gray-200 text-gray-700 rounded-xl px-5 py-3 hover:bg-[var(--primary-color)] hover:text-white hover:scale-[1.03] transform transition-all duration-300 ease-in-out shadow-lg hover:shadow-indigo-200 disabled:opacity-50 disabled:hover:scale-100 disabled:hover:bg-white/80 disabled:hover:text-gray-700;
+        }
+        .chart-bar {
+            @apply transition-all duration-700 ease-out;
+        }
+        .screen {
+            @apply w-full transition-opacity duration-500 ease-in-out;
+        }
+        .screen.hidden {
+            @apply opacity-0 pointer-events-none absolute;
+        }
+        .teacher-content.hidden {
+            @apply !hidden;
+        }
+        @keyframes fade-in-up {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
             }
-            showScreen('studentDashboard');
-        } else if (userType === 'teacher') {
-            checkAndInitializeAi(); // This might show the modal
-            showScreen('teacherDashboard');
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
-    } else {
-        showScreen('welcome');
-    }
-}
-
-
-function setupApiKeyModalListener() {
-    apiKeyModal.saveButton.addEventListener('click', () => {
-        const key = apiKeyModal.input.value.trim();
-        if (!key) {
-            showNotification("Lütfen geçerli bir API anahtarı girin.", "error");
-            return;
+        .animate-fade-in-up {
+            animation: fade-in-up 0.5s ease-out forwards;
         }
-
-        try {
-            // Test the key by initializing the client
-            ai = new GoogleGenAI({ apiKey: key });
-            // If successful, save it and hide the modal
-            localStorage.setItem(API_KEY_STORAGE_KEY, key);
-            apiKeyModal.container.classList.add('hidden');
-            showNotification("API anahtarı başarıyla yapılandırıldı. Sistem şimdi aktif.", "success");
-        } catch (error) {
-            console.error("Failed to initialize GoogleGenAI with provided key:", error);
-            ai = null; // Ensure AI client is null if initialization fails
-            showNotification("API anahtarı geçersiz. Lütfen kontrol edip tekrar girin.", "error");
+        .modal.hidden {
+            @apply opacity-0 pointer-events-none;
         }
-    });
-}
-
-
-// --- Screen Management ---
-function showScreen(screenId: keyof typeof screens) {
-    currentScreen = screenId;
-    Object.values(screens).forEach(screen => screen.classList.add('hidden'));
-    screens[screenId].classList.remove('hidden');
-    updateHeader();
-
-    // Load data for the specific screen
-    if (screenId === 'studentDashboard') {
-        renderStudentDashboard();
-    }
-    if (screenId === 'teacherDashboard') {
-        renderTeacherDashboard();
-    }
-    if (screenId === 'problemSelection') {
-        renderProblemSelection();
-    }
-}
-
-function updateHeader() {
-    const isStudentScreen = ['studentDashboard', 'problemSelection', 'simulation', 'sessionAnalysis'].includes(currentScreen!);
-    const isTeacherScreen = ['teacherDashboard', 'teacherReview'].includes(currentScreen!);
-
-    if (isStudentScreen || isTeacherScreen) {
-        logoutButton.classList.remove('hidden');
-        if (isStudentScreen) {
-            studentInfo.classList.remove('hidden');
-             document.getElementById('student-name-display')!.textContent = currentStudentName;
-        } else {
-            studentInfo.classList.add('hidden');
+         .modal {
+            @apply transition-opacity duration-300;
         }
-    } else {
-        logoutButton.classList.add('hidden');
-        studentInfo.classList.add('hidden');
-    }
-    
-    backToSelectionButton.classList.toggle('hidden', currentScreen !== 'simulation' && currentScreen !== 'sessionAnalysis' && currentScreen !== 'studentDashboard');
-    saveProgressButton.classList.toggle('hidden', currentScreen !== 'simulation');
-
-    if (currentScreen === 'studentDashboard') {
-        backToSelectionButton.onclick = () => showScreen('problemSelection');
-        (backToSelectionButton.querySelector('span:last-child') as HTMLElement).textContent = 'Yeni Simülasyon Başlat';
-    } else {
-         backToSelectionButton.onclick = () => showScreen('problemSelection');
-        (backToSelectionButton.querySelector('span:last-child') as HTMLElement).textContent = 'Senaryolara Dön';
-    }
-}
-
-
-// --- Event Listeners Setup ---
-function setupEventListeners() {
-    // Welcome Screen
-    goToLoginButton.addEventListener('click', () => showScreen('login'));
-    
-    // Login/Register
-    loginButton.addEventListener('click', handleLogin);
-    registerButton.addEventListener('click', handleRegister);
-    teacherLoginButton.addEventListener('click', handleTeacherLogin);
-    showRegisterView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('register'); });
-    showLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('login'); });
-    showTeacherLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('teacher'); });
-    showStudentLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('login'); });
-    
-    // Navigation
-    logoutButton.addEventListener('click', logout);
-    backToSelectionButton.addEventListener('click', () => showScreen('problemSelection'));
-    saveProgressButton.addEventListener('click', saveSessionProgress);
-    goToAnalysisButton.addEventListener('click', () => showScreen('sessionAnalysis'));
-
-    // Analysis Screen
-    analysis.analyzeButton.addEventListener('click', handleAnalyzeTranscript);
-    analysis.backButton.addEventListener('click', () => showScreen('studentDashboard'));
-    analysis.sendButton.addEventListener('click', handleSendAnalysisToTeacher);
-    
-    // Simulation Screen
-    simulation.sendCustomResponseButton.addEventListener('click', () => {
-        const text = simulation.customResponseInput.value.trim();
-        if (text) {
-            handleTherapistResponse(text);
-            simulation.customResponseInput.value = '';
-        } else {
-            showNotification('Lütfen bir yanıt yazın.', 'info');
+        .teacher-inline-comment {
+            @apply mt-2 ms-4 border-l-4 border-amber-400 ps-3 py-2 bg-amber-50 rounded-r-lg max-w-[85%];
         }
-    });
-
-    // Modals
-    rationaleModal.closeButton.addEventListener('click', () => rationaleModal.container.classList.add('hidden'));
-    summaryModal.closeButton.addEventListener('click', () => summaryModal.container.classList.add('hidden'));
-    
-    // Teacher Dashboard
-    teacherDashboard.tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const tabName = (tab as HTMLElement).dataset.tab!;
-            activeTeacherTab = tabName;
-            renderTeacherDashboard();
-        });
-    });
-
-    // Teacher Review Screen
-    teacherReview.backToDashboardButton.addEventListener('click', () => showScreen('teacherDashboard'));
-    teacherReview.backToSessionListButton.addEventListener('click', () => {
-        teacherReview.detailView.classList.add('hidden');
-        teacherReview.listView.classList.remove('hidden');
-    });
-
-    // Student QA with Teacher
-    teacherQASystem.button.addEventListener('click', handleStudentQuestion);
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.17.0"
+  }
 }
+</script>
+</head>
+<body class="bg-gradient-to-br from-[var(--background-start)] to-[var(--background-end)]">
+<div class="relative flex size-full min-h-screen flex-col" style='font-family: "Spline Sans", "Noto Sans", sans-serif;'>
+<div class="layout-container flex h-full grow flex-col">
+<header class="flex items-center justify-between whitespace-nowrap px-6 sm:px-10 py-4 shadow-sm bg-white/60 backdrop-blur-lg sticky top-0 z-10">
+<div class="flex items-center gap-4 text-gray-800">
+<svg class="h-10 w-10 text-[var(--primary-color)]" fill="none" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path d="M24 4C12.95 4 4 12.95 4 24s8.95 20 20 20c.75 0 1.48-.05 2.2-.14-5.2-3.21-8.85-8.8-8.85-15.36s3.65-12.15 8.85-15.36C25.48 4.05 24.75 4 24 4zm18.15 11.5c-4.14-3.3-9.56-5.35-15.35-5.35-1.57 0-3.1.18-4.58.51 5.31 3.51 8.9 9.38 8.9 15.84s-3.59 12.33-8.9 15.84c1.48.33 3.01.51 4.58.51 5.79 0 11.21-2.05 15.35-5.35C45.23 33.32 44 28.84 44 24c0-4.84-1.23-9.32-3.85-12.5z" fill="currentColor"></path>
+</svg>
+<h1 class="text-gray-800 text-xl font-bold leading-tight tracking-[-0.015em]">AI Terapi Simülasyonu</h1>
+</div>
+<div class="flex items-center gap-4">
+<div id="student-info" class="hidden items-center gap-2 text-gray-600">
+    <span class="material-symbols-outlined">person</span>
+    <span id="student-name-display" class="font-semibold"></span>
+</div>
+<button id="logout-button" class="hidden flex items-center justify-center rounded-lg h-10 px-4 bg-red-500 text-white font-semibold hover:bg-red-600 transition-all duration-300 shadow-sm hover:shadow-md">
+    <span class="material-symbols-outlined mr-2">logout</span>
+    <span>Çıkış Yap</span>
+</button>
+<button id="back-to-selection-button" class="hidden flex items-center justify-center rounded-lg h-10 px-4 bg-white/80 text-gray-600 font-semibold hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md">
+<span class="material-symbols-outlined mr-2">arrow_back</span>
+<span>Senaryolara Dön</span>
+</button>
+<button id="save-progress-button" class="hidden flex items-center justify-center rounded-lg h-10 px-4 bg-green-500 text-white font-semibold hover:bg-green-600 transition-all duration-300 shadow-sm hover:shadow-md">
+<span class="material-symbols-outlined mr-2">save</span>
+<span>İlerlemeyi Kaydet</span>
+</button>
+<div class="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-10 shadow-md" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuCpEUlkiuaM-PqmLRfuMdvGVcPG7083Ivwo2Eu-rqhUWkJQ3nbCEOvtAJ8KAQPomgBMrmNGVRwf-bqJdXiLrNeavfuTie6TnUDV2FzF_tjMgYfmW6KXXEA55XwMGKq_g9m0cxT6O1hui-yub_4Mq4gks2jSt1C3Wl6MlagLZDjp3qdg-NFKzAuxj-vCOJS-4_lp4tjEXjw01xZKP4KhDwk7SK7GmX8V_Z1YySgLWbtyssFIFlRz_pUUvPxzMPbLSUTZdRCC_ogQS8k");'></div>
+</div>
+</header>
+<main class="flex flex-1 justify-center px-4 sm:px-6 py-8">
+<div class="layout-content-container flex flex-col w-full max-w-6xl flex-1 gap-6 relative">
 
-// --- Authentication & User Management ---
-function checkAndInitializeAi() {
-    if (ai) return; // Already initialized
+<!-- Welcome Screen -->
+<div id="welcome-screen" class="screen flex items-center justify-center">
+    <div class="w-full max-w-lg mx-auto text-center">
+        <h2 class="text-gray-900 tracking-tight text-4xl sm:text-5xl font-bold">AI Destekli BDT Simülasyon Platformu</h2>
+        <p class="text-gray-600 text-lg mt-4">Becerilerinizi geliştirmek için pratik yapın, anlık geri bildirimler alın ve gelişiminizi takip edin.</p>
+        <div class="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
+            <button id="go-to-login-button" class="w-full flex items-center justify-center gap-3 rounded-xl h-16 px-8 bg-[var(--primary-color)] text-white font-bold hover:bg-indigo-700 transition-all duration-300 text-xl shadow-lg hover:shadow-indigo-300">
+                <span class="material-symbols-outlined text-3xl">login</span>
+                <span>Giriş Yap / Kayıt Ol</span>
+            </button>
+        </div>
+    </div>
+</div>
 
-    const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
-    if (savedApiKey) {
-        try {
-            ai = new GoogleGenAI({ apiKey: savedApiKey });
-            console.log("AI client initialized successfully from saved key.");
-            return; // Success
-        } catch (error) {
-            console.error("Failed to initialize GoogleGenAI with saved key:", error);
-            localStorage.removeItem(API_KEY_STORAGE_KEY); // The saved key is bad, remove it
-        }
-    }
-    
-    // If we reach here, we need the user to provide a key
-    apiKeyModal.container.classList.remove('hidden');
-}
+<!-- Login/Register Screen -->
+<div id="login-screen" class="screen hidden items-center justify-center">
+    <div class="w-full max-w-md mx-auto bg-white/50 backdrop-blur-lg p-10 rounded-2xl shadow-xl">
+        <div id="login-view">
+            <h2 class="text-gray-900 tracking-tight text-3xl font-bold text-center">Öğrenci Girişi</h2>
+            <p class="text-center text-gray-600 mt-2">Lütfen bilgilerinizi girin.</p>
+            <div id="login-error" class="hidden text-red-600 bg-red-100 p-3 rounded-lg mt-4 text-sm"></div>
+            <div class="mt-6 space-y-4">
+                <div>
+                    <label for="username-input" class="block text-sm font-medium text-gray-700">Kullanıcı Adı</label>
+                    <input type="text" id="username-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-3 transition-shadow">
+                </div>
+                 <div>
+                    <label for="password-input" class="block text-sm font-medium text-gray-700">Şifre</label>
+                    <input type="password" id="password-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-3 transition-shadow">
+                </div>
+                <button id="login-button" class="w-full flex items-center justify-center rounded-lg h-14 px-8 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 text-lg shadow-lg hover:shadow-indigo-300">
+                    <span>Giriş Yap</span>
+                </button>
+            </div>
+            <div class="mt-6 text-center text-sm text-gray-600 space-x-4">
+                <a href="#" id="show-register-view" class="font-semibold text-[var(--primary-color)] hover:underline">Hesap Oluştur</a>
+                <a href="#" id="show-teacher-login-view" class="font-semibold text-amber-600 hover:underline">Öğretmen Girişi Yap</a>
+            </div>
+        </div>
+        <div id="register-view" class="hidden">
+            <h2 class="text-gray-900 tracking-tight text-3xl font-bold text-center">Öğrenci Kaydı</h2>
+            <div id="register-error" class="hidden text-red-600 bg-red-100 p-3 rounded-lg mt-4 text-sm"></div>
+             <div id="register-success" class="hidden text-green-700 bg-green-100 p-3 rounded-lg mt-4 text-sm"></div>
+            <div class="mt-6 space-y-4">
+                <div>
+                    <label for="register-username-input" class="block text-sm font-medium text-gray-700">Kullanıcı Adı</label>
+                    <input type="text" id="register-username-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-3 transition-shadow">
+                </div>
+                 <div>
+                    <label for="register-password-input" class="block text-sm font-medium text-gray-700">Şifre</label>
+                    <input type="password" id="register-password-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-3 transition-shadow">
+                </div>
+                <div>
+                    <label for="register-confirm-password-input" class="block text-sm font-medium text-gray-700">Şifre Tekrar</label>
+                    <input type="password" id="register-confirm-password-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-3 transition-shadow">
+                </div>
+                <button id="register-button" class="w-full flex items-center justify-center rounded-lg h-14 px-8 bg-teal-500 text-white font-semibold hover:bg-teal-600 transition-all duration-300 text-lg shadow-lg hover:shadow-teal-300">
+                    <span>Kayıt Ol</span>
+                </button>
+            </div>
+             <p class="text-center text-sm text-gray-600 mt-6">
+                Zaten bir hesabın var mı? <a href="#" id="show-login-view" class="font-semibold text-[var(--primary-color)] hover:underline">Giriş Yap</a>
+            </p>
+        </div>
+        <div id="teacher-login-view" class="hidden">
+            <h2 class="text-gray-900 tracking-tight text-3xl font-bold text-center">Öğretmen Girişi</h2>
+            <p class="text-center text-gray-600 mt-2">Lütfen yönetici şifresini girin.</p>
+            <div id="teacher-login-error" class="hidden text-red-600 bg-red-100 p-3 rounded-lg mt-4 text-sm"></div>
+            <div class="mt-6 space-y-4">
+                 <div>
+                    <label for="teacher-password-input" class="block text-sm font-medium text-gray-700">Yönetici Şifresi</label>
+                    <input type="password" id="teacher-password-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-lg p-3 transition-shadow">
+                </div>
+                <button id="teacher-login-button" class="w-full flex items-center justify-center rounded-lg h-14 px-8 bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-all duration-300 text-lg shadow-lg hover:shadow-amber-300">
+                    <span>Giriş Yap</span>
+                </button>
+            </div>
+             <p class="text-center text-sm text-gray-600 mt-6">
+                <a href="#" id="show-student-login-view" class="font-semibold text-amber-600 hover:underline">Öğrenci Girişine Dön</a>
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- Student Dashboard Screen -->
+<div id="student-dashboard-screen" class="screen hidden">
+    <div class="text-center mb-8">
+        <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Hoş Geldin, <span id="dashboard-student-name"></span>!</h2>
+        <p class="text-gray-600 text-lg mt-2">Bugün ne yapmak istersin?</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <!-- Column 1 & 2 -->
+        <div class="space-y-8 lg:col-span-2">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div id="continue-session-card" class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-shadow duration-300 flex flex-col items-center justify-center text-center"></div>
+                <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-shadow duration-300 flex flex-col items-center justify-center text-center">
+                    <span class="material-symbols-outlined text-5xl text-teal-500 mb-3">upload_file</span>
+                    <h3 class="text-xl font-bold text-gray-800">Seans Analizi</h3>
+                    <p class="text-gray-600 mt-2 mb-4">Harici bir seans transkriptini yükleyerek anında yapay zeka analizi al.</p>
+                    <button id="go-to-analysis-button" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-teal-500 text-white font-semibold hover:bg-teal-600 transition-all duration-300 shadow-md hover:shadow-lg">
+                        <span>Analiz Başlat</span>
+                    </button>
+                </div>
+            </div>
+             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div id="progress-tracking-card" class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-shadow duration-300">
+                    <div class="flex items-center justify-center gap-3 mb-4">
+                        <span class="material-symbols-outlined text-3xl text-green-500">trending_up</span>
+                        <h3 class="text-xl font-bold text-gray-800">Mevcut Seans Performansı</h3>
+                    </div>
+                    <div id="progress-charts-container" class="space-y-3"></div>
+                </div>
+                <div id="cumulative-progress-card" class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-shadow duration-300">
+                    <div class="flex items-center justify-center gap-3 mb-4">
+                        <span class="material-symbols-outlined text-3xl text-blue-500">show_chart</span>
+                        <h3 class="text-xl font-bold text-gray-800">Genel Gelişimim</h3>
+                    </div>
+                    <div id="cumulative-charts-container" class="space-y-3"></div>
+                </div>
+            </div>
+            <div id="recommendations-card" class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-shadow duration-300">
+                <div class="flex items-center justify-center gap-3 mb-4">
+                    <span class="material-symbols-outlined text-3xl text-cyan-500">assistant</span>
+                    <h3 class="text-xl font-bold text-gray-800">Akıllı Öneriler</h3>
+                </div>
+                <div id="recommendations-container" class="space-y-3"></div>
+            </div>
+        </div>
+        <!-- Column 3 -->
+        <div class="space-y-8 lg:col-span-1">
+             <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-shadow duration-300 h-full">
+                <h3 class="text-xl font-bold text-gray-800 text-center mb-4">Öğretmeninle İletişim</h3>
+                <div id="teacher-qa-history" class="h-80 overflow-y-auto space-y-4 mb-4 p-4 bg-gray-50/50 rounded-lg"></div>
+                <div class="flex gap-3">
+                    <input type="text" id="student-question-input" placeholder="Sorunuzu yazın..." class="flex-grow rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 transition-shadow">
+                    <button id="ask-teacher-button" class="flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg">
+                        <span class="material-symbols-outlined mr-2">send</span>
+                        <span>Gönder</span>
+                    </button>
+                </div>
+            </div>
+            <div id="achievements-card" class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-shadow duration-300">
+                <div class="flex items-center justify-center gap-3 mb-4">
+                    <span class="material-symbols-outlined text-3xl text-amber-500">emoji_events</span>
+                    <h3 class="text-xl font-bold text-gray-800">Başarılar</h3>
+                </div>
+                <div id="achievements-container" class="grid grid-cols-3 gap-4 text-center"></div>
+            </div>
+        </div>
+    </div>
+</div>
 
 
-function toggleLoginViews(view: 'login' | 'register' | 'teacher') {
-    loginView.classList.add('hidden');
-    registerView.classList.add('hidden');
-    teacherLoginView.classList.add('hidden');
-    loginError.classList.add('hidden');
-    registerError.classList.add('hidden');
-    teacherLoginError.classList.add('hidden');
-    registerSuccess.classList.add('hidden');
-
-    if (view === 'login') loginView.classList.remove('hidden');
-    if (view === 'register') registerView.classList.remove('hidden');
-    if (view === 'teacher') teacherLoginView.classList.remove('hidden');
-}
-
-function handleLogin() {
-    const username = usernameInput.value.trim();
-    const password = passwordInput.value.trim();
-    loginError.classList.add('hidden');
-
-    if (!username || !password) {
-        loginError.textContent = "Kullanıcı adı ve şifre gereklidir.";
-        loginError.classList.remove('hidden');
-        return;
-    }
-
-    const users = getUsers();
-    const user = users.find((u: any) => u.username === username && u.password === password);
-
-    if (user) {
-        if (user.approved) {
-            currentUserId = user.username;
-            currentStudentName = user.username;
-            localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.username, studentName: user.username, userType: 'student' }));
-            initializeApp(); // Re-initialize to route to dashboard
-        } else {
-            loginError.textContent = "Hesabınız henüz öğretmen tarafından onaylanmadı.";
-            loginError.classList.remove('hidden');
-        }
-    } else {
-        loginError.textContent = "Geçersiz kullanıcı adı veya şifre.";
-        loginError.classList.remove('hidden');
-    }
-}
-
-function handleRegister() {
-    const username = registerUsernameInput.value.trim();
-    const password = registerPasswordInput.value.trim();
-    const confirmPassword = registerConfirmPasswordInput.value.trim();
-    registerError.classList.add('hidden');
-    registerSuccess.classList.add('hidden');
-
-    if (!username || !password || !confirmPassword) {
-        registerError.textContent = "Tüm alanlar zorunludur.";
-        registerError.classList.remove('hidden');
-        return;
-    }
-    if (password !== confirmPassword) {
-        registerError.textContent = "Şifreler eşleşmiyor.";
-        registerError.classList.remove('hidden');
-        return;
-    }
-    const users = getUsers();
-    if (users.some((u: any) => u.username === username)) {
-        registerError.textContent = "Bu kullanıcı adı zaten alınmış.";
-        registerError.classList.remove('hidden');
-        return;
-    }
-
-    users.push({ username, password, approved: false });
-    saveUsers(users);
-
-    registerSuccess.textContent = "Kayıt başarılı! Hesabınız öğretmen tarafından onaylandıktan sonra giriş yapabilirsiniz.";
-    registerSuccess.classList.remove('hidden');
-    registerUsernameInput.value = '';
-    registerPasswordInput.value = '';
-    registerConfirmPasswordInput.value = '';
-}
-
-function handleTeacherLogin() {
-    const password = teacherPasswordInput.value;
-    teacherLoginError.classList.add('hidden');
-
-    if (password === TEACHER_PASSWORD) {
-        currentUserId = 'teacher';
-        localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: 'teacher', userType: 'teacher' }));
-        initializeApp(); // Re-initialize to route to teacher dashboard
-    } else {
-        teacherLoginError.textContent = "Geçersiz yönetici şifresi.";
-        teacherLoginError.classList.remove('hidden');
-    }
-}
-
-function logout() {
-    localStorage.removeItem(SESSION_KEY);
-    window.location.reload();
-}
-
-
-// --- Problem Selection ---
-function renderProblemSelection() {
-    const defaultContainer = document.getElementById('default-scenarios-container')!;
-    defaultContainer.innerHTML = '';
-    scenarios.filter(s => !s.isCustom).forEach(scenario => {
-        const card = createScenarioCard(scenario);
-        defaultContainer.appendChild(card);
-    });
-
-    // Handle custom scenarios (if any)
-    const customScenarios = getCustomScenarios();
-    const customSection = document.getElementById('custom-scenarios-section')!;
-    const customContainer = document.getElementById('custom-scenarios-container')!;
-    if (customScenarios.length > 0) {
-        customContainer.innerHTML = '';
-        customScenarios.forEach(scenario => {
-            const card = createScenarioCard(scenario);
-            customContainer.appendChild(card);
-        });
-        customSection.classList.remove('hidden');
-    } else {
-        customSection.classList.add('hidden');
-    }
-}
-
-function createScenarioCard(scenario: Scenario): HTMLElement {
-    const card = document.createElement('div');
-    card.className = 'bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-shadow duration-300 flex flex-col';
-    card.innerHTML = `
-        <h3 class="text-xl font-bold text-gray-800">${scenario.title}</h3>
-        <p class="text-gray-600 mt-2 flex-grow">${scenario.description}</p>
-        <button class="mt-4 w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg">
-            <span>Simülasyonu Başlat</span>
+<!-- Session Analysis Screen -->
+<div id="session-analysis-screen" class="screen hidden w-full">
+     <div class="flex items-center justify-between mb-6">
+        <button id="back-to-dashboard-from-analysis" class="flex items-center justify-center rounded-lg h-10 px-4 bg-white/80 text-gray-600 font-semibold hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md">
+            <span class="material-symbols-outlined mr-2">arrow_back</span>
+            <span>Panele Dön</span>
         </button>
-    `;
-    card.querySelector('button')!.addEventListener('click', () => startSimulation(scenario));
-    return card;
-}
-
-// --- Simulation Logic ---
-function startSimulation(scenario: Scenario) {
-    if (!ai) {
-        showNotification("Sistem aktif değil. Lütfen öğretmenin API anahtarını yapılandırmasını sağlayın.", "error");
-        return;
-    }
-
-    currentScenario = scenario;
-    chatHistory = [];
-    sessionScores = [];
-    simulation.chatContainer.innerHTML = '';
-    simulation.optionsContainer.innerHTML = '';
-    simulation.feedbackSection.classList.add('hidden');
-    simulation.customResponseInput.value = '';
-    simulation.customResponseInput.disabled = false;
-    simulation.sendCustomResponseButton.disabled = false;
-
-
-    simulation.problemDisplay.textContent = scenario.title;
-    showScreen('simulation');
-
-    const initialResponseText = `Merhaba, ben Elif. ${currentScenario!.description} Bu konuda konuşmak için buradayım. Nereden başlamak istersiniz?`;
-    const initialOptions = [
-        "Bugün kendinizi nasıl hissediyorsunuz?",
-        "Sizi buraya getiren şey hakkında daha fazla konuşalım mı?",
-        "Bu durum hayatınızı nasıl etkiliyor?",
-        "Bu konuda ne zamandır zorlanıyorsunuz?"
-    ];
-
-    addMessageToChat('client', initialResponseText);
-    chatHistory.push({ role: 'model', parts: [{ text: initialResponseText }] });
-    renderOptions(initialOptions);
-}
-
-function addMessageToChat(sender: 'therapist' | 'client' | 'teacher', text: string, rationale: string | null = null, onRationaleClick: (() => void) | null = null) {
-    const messageElement = document.createElement('div');
-    const bubble = document.createElement('div');
-    
-    const isTherapist = sender === 'therapist';
-    const isClient = sender === 'client';
-    const isTeacher = sender === 'teacher';
-
-    messageElement.className = `flex flex-col animate-fade-in-up ${isTherapist ? 'items-start' : isClient ? 'items-end' : 'items-center w-full'}`;
-    bubble.className = `chat-bubble ${isTherapist ? 'chat-bubble-therapist' : isClient ? 'chat-bubble-client' : 'chat-bubble-teacher'}`;
-    bubble.textContent = text;
-    
-    messageElement.appendChild(bubble);
-
-    if (isTherapist && rationale) {
-        const rationaleButton = document.createElement('button');
-        rationaleButton.innerHTML = `<span class="material-symbols-outlined text-sm mr-1">lightbulb</span> Gerekçeyi Gör`;
-        rationaleButton.className = 'text-xs text-indigo-600 hover:underline mt-1 ml-2';
-        rationaleButton.onclick = () => {
-            if (onRationaleClick) onRationaleClick();
-        };
-        messageElement.appendChild(rationaleButton);
-    }
-    
-    simulation.chatContainer.appendChild(messageElement);
-    simulation.chatContainer.scrollTop = simulation.chatContainer.scrollHeight;
-}
-
-
-function renderOptions(options: string[], rationale: string = "") {
-    simulation.optionsContainer.innerHTML = '';
-    options.forEach(optionText => {
-        const button = document.createElement('button');
-        button.className = 'option-button';
-        button.textContent = optionText;
-        button.addEventListener('click', () => handleOptionSelection(optionText, rationale));
-        simulation.optionsContainer.appendChild(button);
-    });
-}
-
-async function handleOptionSelection(therapistResponse: string, rationale: string) {
-    handleTherapistResponse(therapistResponse, rationale);
-}
-
-async function handleTherapistResponse(therapistResponse: string, rationale: string | null = null) {
-    // Add therapist's message to chat
-    addMessageToChat('therapist', therapistResponse, rationale, () => {
-        if(rationale) showRationaleModal(rationale);
-    });
-
-    // Add to history
-    chatHistory.push({ role: 'user', parts: [{ text: therapistResponse }] });
-
-    // Disable all inputs (options and custom text)
-    const options = document.querySelectorAll('.option-button');
-    options.forEach(opt => (opt as HTMLButtonElement).disabled = true);
-    simulation.customResponseInput.disabled = true;
-    simulation.sendCustomResponseButton.disabled = true;
-
-    // Get AI response
-    await getAiResponse(chatHistory, currentScenario!);
-}
-
-
-function updateSimulationUI(aiData: any) {
-    // Add client's response to chat
-    addMessageToChat('client', aiData.clientResponse);
-
-    // Update feedback section
-    simulation.feedbackSection.classList.remove('hidden');
-    simulation.feedbackText.textContent = aiData.feedback;
-
-    // Update graphs
-    updateScoreBars(aiData.scoring, aiData.clientImpact);
-
-    // Save scores for session summary
-    sessionScores.push({ scoring: aiData.scoring, clientImpact: aiData.clientImpact });
-
-    // Render new options
-    renderOptions(aiData.therapistOptions, aiData.rationale);
-    
-    // Re-enable custom input for the next turn
-    simulation.customResponseInput.disabled = false;
-    simulation.sendCustomResponseButton.disabled = false;
-}
-
-function updateScoreBars(scoring: any, clientImpact: any) {
-    const skillEmpathyBar = document.getElementById('skill-empathy-bar') as HTMLElement;
-    const skillTechniqueBar = document.getElementById('skill-technique-bar') as HTMLElement;
-    const skillRapportBar = document.getElementById('skill-rapport-bar') as HTMLElement;
-    const impactEmotionBar = document.getElementById('impact-emotion-bar') as HTMLElement;
-    const impactCognitionBar = document.getElementById('impact-cognition-bar') as HTMLElement;
-
-    skillEmpathyBar.style.width = `${scoring.empathy * 10}%`;
-    skillTechniqueBar.style.width = `${scoring.technique * 10}%`;
-    skillRapportBar.style.width = `${scoring.rapport * 10}%`;
-    impactEmotionBar.style.width = `${clientImpact.emotionalRelief * 10}%`;
-    impactCognitionBar.style.width = `${clientImpact.cognitiveClarity * 10}%`;
-}
-
-
-function showLoaderWithOptions(show: boolean, text: string = "Yükleniyor...") {
-    if (show) {
-        simulation.optionsContainer.innerHTML = `<div class="col-span-1 md:col-span-2 flex items-center justify-center p-4 text-gray-600"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div><p class="ml-3">${text}</p></div>`;
-    } else {
-        simulation.optionsContainer.innerHTML = ''; // Cleared before new options are rendered
-    }
-}
-
-
-function showRationaleModal(rationale: string) {
-    rationaleModal.content.textContent = rationale;
-    rationaleModal.container.classList.remove('hidden');
-}
-
-
-// --- Student Dashboard Rendering ---
-function renderStudentDashboard() {
-    dashboardStudentName.textContent = currentStudentName;
-    renderContinueSessionCard();
-    renderProgressTracking();
-    renderCumulativeProgress();
-    renderAchievements();
-    renderRecommendations();
-    renderQACard();
-}
-
-function renderContinueSessionCard() {
-    const savedSession = getSavedSession(currentUserId);
-    if (savedSession) {
-        continueSessionCard.innerHTML = `
-            <span class="material-symbols-outlined text-5xl text-[var(--primary-color)] mb-3">play_circle</span>
-            <h3 class="text-xl font-bold text-gray-800">Kaldığın Yerden Devam Et</h3>
-            <p class="text-gray-600 mt-2 mb-4">"${savedSession.scenario.title}" simülasyonuna devam et.</p>
-            <div class="flex gap-2 w-full">
-                <button id="resume-session-button" class="flex-1 flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg">Devam Et</button>
-                <button id="delete-session-button" class="flex items-center justify-center rounded-lg h-12 w-12 bg-red-100 text-red-600 hover:bg-red-200 transition-all duration-300 shadow-sm"><span class="material-symbols-outlined">delete</span></button>
-            </div>
-        `;
-        document.getElementById('resume-session-button')!.addEventListener('click', resumeSession);
-        document.getElementById('delete-session-button')!.addEventListener('click', deleteSavedSession);
-    } else {
-        continueSessionCard.innerHTML = `
-            <span class="material-symbols-outlined text-5xl text-[var(--secondary-color)] mb-3">add_circle</span>
-            <h3 class="text-xl font-bold text-gray-800">Yeni Simülasyon Başlat</h3>
-            <p class="text-gray-600 mt-2 mb-4">Yeni bir BDT senaryosuna başlayarak becerilerini geliştir.</p>
-            <button id="start-new-session-button" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--secondary-color)] text-white font-semibold hover:bg-pink-600 transition-all duration-300 shadow-md hover:shadow-lg">Senaryo Seç</button>
-        `;
-        document.getElementById('start-new-session-button')!.addEventListener('click', () => showScreen('problemSelection'));
-    }
-}
-
-
-function renderProgressTracking() {
-    if (sessionScores.length > 0) {
-        progressTracking.card.classList.remove('hidden');
-        progressTracking.container.innerHTML = createChartHTML(calculateAverageScores(sessionScores), 'session');
-    } else {
-        progressTracking.card.classList.add('hidden');
-    }
-}
-
-function renderCumulativeProgress() {
-    const allSessions = getAllSessionsForStudent(currentUserId);
-    if (allSessions.length > 0) {
-        const allScores = allSessions.flatMap(s => s.scores);
-        if (allScores.length > 0) {
-            cumulativeProgress.card.classList.remove('hidden');
-            cumulativeProgress.container.innerHTML = createChartHTML(calculateAverageScores(allScores), 'cumulative');
-            return;
-        }
-    }
-     cumulativeProgress.card.classList.add('hidden');
-}
-
-function createChartHTML(scores: any, type: string): string {
-    return `
-        <div class="space-y-2">
-            <h5 class="font-semibold text-sm text-gray-700">Terapist Becerileri</h5>
-            ${createBar('Empati', scores.empathy, 'fuchsia')}
-            ${createBar('BDT Tekniği', scores.technique, 'amber')}
-            ${createBar('İlişki Kurma', scores.rapport, 'teal')}
-            <h5 class="font-semibold text-sm text-gray-700 mt-3">Danışan Etkisi</h5>
-            ${createBar('Duygusal Rahatlama', scores.emotionalRelief, 'green')}
-            ${createBar('Bilişsel Netlik', scores.cognitiveClarity, 'blue')}
+        <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold text-center">Seans Transkript Analizi</h2>
+        <div class="w-32"></div>
+     </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">1. Transkripti Yapıştırın</h3>
+            <textarea id="transcript-input" class="w-full h-96 rounded-lg border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500 transition-shadow" placeholder="Terapist: Merhaba, hoş geldiniz. Bugün sizi buraya getiren nedir?&#x0a;Danışan: ..."></textarea>
+            <button id="analyze-transcript-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 px-6 bg-teal-500 text-white font-semibold hover:bg-teal-600 transition-all duration-300 shadow-md hover:shadow-lg">
+                <span class="material-symbols-outlined mr-2">psychology</span>
+                <span>Yapay Zeka ile Analiz Et</span>
+            </button>
         </div>
-    `;
-}
-
-function createBar(label: string, value: number, color: string): string {
-    const percentage = value * 10;
-    return `
-        <div class="w-full">
-            <div class="flex justify-between items-center mb-1">
-                <span class="text-xs font-medium text-gray-500">${label}</span>
-                <span class="text-xs font-bold text-gray-600">${value.toFixed(1)}/10</span>
+        <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">2. Analiz Sonuçları</h3>
+            <div id="analysis-output" class="prose max-w-none p-4 bg-gray-50/50 rounded-lg h-96 overflow-y-auto">
+                 <p class="text-gray-500">Analiz sonuçları burada görünecektir...</p>
             </div>
-            <div class="h-3 bg-gray-200 rounded-full">
-                <div class="h-3 rounded-full bg-${color}-400 chart-bar" style="width: ${percentage}%;"></div>
+            <button id="send-to-teacher-button" class="hidden mt-4 w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 shadow-md hover:shadow-lg">
+                <span class="material-symbols-outlined mr-2">school</span>
+                <span>İnceleme İçin Öğretmene Gönder</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+
+
+<!-- Problem Selection Screen -->
+<div id="problem-selection-screen" class="screen hidden">
+    <div class="text-center">
+        <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Bir Senaryo Seçin</h2>
+        <p class="text-gray-600 text-lg mt-2">Simülasyonu başlatmak için bir sorun alanı seçin.</p>
+    </div>
+    <div id="problem-selection-container" class="mt-8 space-y-8">
+        <div>
+             <h3 class="text-xl font-bold text-gray-800 mb-4">Standart Senaryolar</h3>
+            <div id="default-scenarios-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Default Scenarios Loaded Here -->
             </div>
         </div>
-    `;
-}
+        <div id="custom-scenarios-section" class="hidden">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">Öğretmen Tarafından Oluşturulan Senaryolar</h3>
+            <div id="custom-scenarios-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Custom Scenarios Loaded Here -->
+            </div>
+        </div>
+    </div>
+</div>
 
 
-function renderAchievements() {
-    // Placeholder logic
-    achievements.container.innerHTML = `
-        <div class="flex flex-col items-center text-gray-400 opacity-60" title="İlk simülasyonunu tamamla"><span class="material-symbols-outlined text-5xl">workspace_premium</span><span class="text-xs mt-1">İlk Adım</span></div>
-        <div class="flex flex-col items-center text-gray-400 opacity-60" title="5 simülasyon tamamla"><span class="material-symbols-outlined text-5xl">military_tech</span><span class="text-xs mt-1">Azimli</span></div>
-        <div class="flex flex-col items-center text-gray-400 opacity-60" title="Empati puanını 8'in üzerine çıkar"><span class="material-symbols-outlined text-5xl">psychology</span><span class="text-xs mt-1">Empati Ustası</span></div>
-    `;
-}
-
-function renderRecommendations() {
-    recommendations.container.innerHTML = '';
-    const uniqueScenarioIds = [...new Set(getAllSessionsForStudent(currentUserId).map(s => s.scenario.id))];
-    if (uniqueScenarioIds.length === 0) {
-        recommendations.container.innerHTML = '<p class="text-gray-500 text-center">Simülasyonları tamamladıkça burada kişiselleştirilmiş kaynak önerileri göreceksiniz.</p>';
-        return;
-    }
-    
-    const relevantResources = resources.filter(r => r.associatedScenarioIds.some(id => uniqueScenarioIds.includes(id)));
-    
-    if (relevantResources.length > 0) {
-         relevantResources.forEach(resource => {
-            const resourceCard = `
-                <a href="${resource.url}" target="_blank" class="block bg-white/50 p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300">
-                    <div class="flex items-center gap-3">
-                        <span class="material-symbols-outlined text-2xl text-cyan-600">${resource.type === 'video' ? 'movie' : resource.type === 'pdf' ? 'picture_as_pdf' : 'article'}</span>
-                        <div>
-                            <h4 class="font-semibold text-gray-800">${resource.title}</h4>
-                            <p class="text-sm text-gray-600 capitalize">${resource.type}</p>
+<!-- Main Simulation Screen (Initially Hidden) -->
+<div id="simulation-screen" class="screen hidden">
+    <div class="flex flex-col gap-2 text-center">
+        <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Yapay Zeka Destekli Seans Simülasyonu</h2>
+        <p class="text-gray-600 text-lg">
+            Sanal danışanınız <span class="font-semibold text-[var(--primary-color)]">Elif</span> ile <span id="current-problem-display" class="font-semibold text-[var(--primary-color)]"></span> üzerine çalışıyorsunuz.
+        </p>
+    </div>
+    <div class="bg-white/60 backdrop-blur-lg rounded-2xl flex-1 flex flex-col shadow-xl overflow-hidden mt-6">
+        <div class="p-4 sm:p-6 border-b border-gray-200">
+            <h3 class="text-gray-800 text-xl sm:text-2xl font-bold text-center">Seans Akışı</h3>
+        </div>
+        <div class="p-4 sm:p-6 space-y-6 flex-1 overflow-y-auto h-[40vh]" id="chat-container">
+            <!-- Messages will be appended here -->
+        </div>
+        
+        <!-- Feedback and Graphs Section -->
+        <div id="feedback-section" class="p-4 sm:p-6 border-t border-b border-gray-200 bg-white/20 hidden">
+             <h4 class="text-gray-700 font-bold text-lg mb-4 text-center">Anlık Geri Bildirim ve Analiz</h4>
+             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h5 class="font-semibold text-gray-800 mb-2">Geri Bildirim</h5>
+                    <p id="feedback-text" class="text-sm text-gray-600 bg-indigo-50 p-3 rounded-lg"></p>
+                </div>
+                <div class="space-y-4">
+                    <div>
+                        <h5 class="font-semibold text-gray-800 mb-2">Danışan Etki Grafiği</h5>
+                        <div class="space-y-2">
+                            <div class="w-full"><span class="text-xs font-medium text-gray-500">Duygusal Rahatlama</span><div class="h-4 bg-gray-200 rounded-full mt-1"><div id="impact-emotion-bar" class="h-4 rounded-full bg-green-400 chart-bar" style="width: 0%;"></div></div></div>
+                            <div class="w-full"><span class="text-xs font-medium text-gray-500">Bilişsel Netlik</span><div class="h-4 bg-gray-200 rounded-full mt-1"><div id="impact-cognition-bar" class="h-4 rounded-full bg-blue-400 chart-bar" style="width: 0%;"></div></div></div>
                         </div>
                     </div>
-                </a>`;
-            recommendations.container.innerHTML += resourceCard;
-        });
-    } else {
-        recommendations.container.innerHTML = '<p class="text-gray-500 text-center">Tamamladığınız senaryolarla ilişkili ek kaynak bulunamadı.</p>';
-    }
-}
+                     <div>
+                        <h5 class="font-semibold text-gray-800 mb-2">Terapist Beceri Puanları (Son Tur)</h5>
+                        <div class="space-y-2">
+                            <div class="w-full"><span class="text-xs font-medium text-gray-500">Empati</span><div class="h-4 bg-gray-200 rounded-full mt-1"><div id="skill-empathy-bar" class="h-4 rounded-full bg-fuchsia-400 chart-bar" style="width: 0%;"></div></div></div>
+                            <div class="w-full"><span class="text-xs font-medium text-gray-500">BDT Tekniği</span><div class="h-4 bg-gray-200 rounded-full mt-1"><div id="skill-technique-bar" class="h-4 rounded-full bg-amber-400 chart-bar" style="width: 0%;"></div></div></div>
+                            <div class="w-full"><span class="text-xs font-medium text-gray-500">İlişki Kurma</span><div class="h-4 bg-gray-200 rounded-full mt-1"><div id="skill-rapport-bar" class="h-4 rounded-full bg-teal-400 chart-bar" style="width: 0%;"></div></div></div>
+                        </div>
+                    </div>
+                </div>
+             </div>
+        </div>
 
-function renderQACard() {
-    const qaHistory = getQAsForStudent(currentUserId);
-    teacherQASystem.history.innerHTML = '';
-    if (qaHistory.length === 0) {
-        teacherQASystem.history.innerHTML = '<p class="text-center text-gray-500 text-sm">Henüz bir soru sormadınız. Öğretmeninize danışmak istediğiniz bir konu var mı?</p>';
-    } else {
-        qaHistory.forEach(qa => {
-            teacherQASystem.history.innerHTML += `<div class="chat-bubble chat-bubble-therapist !max-w-full !rounded-xl">${qa.question}</div>`;
-            if (qa.answer) {
-                teacherQASystem.history.innerHTML += `<div class="chat-bubble chat-bubble-teacher !max-w-full mt-2">${qa.answer}</div>`;
-            } else {
-                 teacherQASystem.history.innerHTML += `<div class="text-xs text-gray-500 italic text-center mt-1">Öğretmen yanıtı bekleniyor...</div>`;
-            }
-        });
-    }
-}
-
-
-// --- Session Progress Management ---
-function saveSessionProgress() {
-    if (currentScenario && chatHistory.length > 0) {
-        const sessionData = {
-            userId: currentUserId,
-            scenario: currentScenario,
-            history: chatHistory,
-            scores: sessionScores,
-            timestamp: new Date().toISOString()
-        };
-        localStorage.setItem(`session_${currentUserId}`, JSON.stringify(sessionData));
-        showNotification("İlerlemeniz başarıyla kaydedildi!", "success");
-    } else {
-        showNotification("Kaydedilecek bir ilerleme yok.", "info");
-    }
-}
-
-function getSavedSession(userId: string) {
-    const saved = localStorage.getItem(`session_${userId}`);
-    return saved ? JSON.parse(saved) : null;
-}
-
-function resumeSession() {
-    const savedSession = getSavedSession(currentUserId);
-    if (savedSession) {
-        currentScenario = savedSession.scenario;
-        chatHistory = savedSession.history;
-        sessionScores = savedSession.scores || [];
-
-        showScreen('simulation');
-        simulation.problemDisplay.textContent = currentScenario!.title;
-        simulation.chatContainer.innerHTML = '';
-        simulation.optionsContainer.innerHTML = '';
-
-        // Re-render chat history
-        chatHistory.forEach(turn => {
-            if (turn.role === 'user') {
-                 try {
-                    const lastModelTurn = chatHistory[chatHistory.indexOf(turn) - 1];
-                    const lastModelResponse = JSON.parse(lastModelTurn.parts[0].text);
-                    addMessageToChat('therapist', turn.parts[0].text, lastModelResponse.rationale, () => showRationaleModal(lastModelResponse.rationale));
-                } catch(e) {
-                    addMessageToChat('therapist', turn.parts[0].text);
-                }
-            } else if (turn.role === 'model') {
-                 try {
-                    const modelResponse = JSON.parse(turn.parts[0].text);
-                    addMessageToChat('client', modelResponse.clientResponse);
-                } catch(e) {
-                     addMessageToChat('client', turn.parts[0].text);
-                }
-            }
-        });
-
-        // Re-render last state
-        try {
-            const lastModelResponse = JSON.parse(chatHistory[chatHistory.length - 1].parts[0].text);
-            updateSimulationUI(lastModelResponse);
-        } catch (e) {
-            console.error("Failed to parse last model response on session resume:", e);
-            simulation.optionsContainer.innerHTML = `<p class="text-red-500 col-span-2 text-center">Kaydedilmiş seans yüklenirken bir hata oluştu. Lütfen seansı silip baştan başlayın.</p>`;
-            showNotification("Kaydedilmiş seans verisi bozuk.", "error");
-        }
-    }
-}
-
-function deleteSavedSession() {
-    localStorage.removeItem(`session_${currentUserId}`);
-    showNotification("Kaydedilen seans silindi.", "info");
-    renderContinueSessionCard();
-}
-
-function completeSession() {
-    // This function is called when a session ends (e.g., by saving and quitting, or reaching an end point)
-    const allSessions = getAllSessionsForStudent(currentUserId);
-    const sessionData = {
-        id: `sess_${Date.now()}`,
-        userId: currentUserId,
-        scenario: currentScenario,
-        history: chatHistory,
-        scores: sessionScores,
-        timestamp: new Date().toISOString()
-    };
-    allSessions.push(sessionData);
-    localStorage.setItem(`history_${currentUserId}`, JSON.stringify(allSessions));
-
-    // Clear current session data
-    localStorage.removeItem(`session_${currentUserId}`);
-    chatHistory = [];
-    sessionScores = [];
-    currentScenario = null;
-}
-
-function getAllSessionsForStudent(userId: string) {
-    const history = localStorage.getItem(`history_${userId}`);
-    return history ? JSON.parse(history) : [];
-}
-
-// --- Analysis Screen Logic ---
-async function handleAnalyzeTranscript() {
-    if (!ai) {
-        showNotification("Sistem aktif değil. Lütfen öğretmenin API anahtarını yapılandırmasını sağlayın.", "error");
-        return;
-    }
-
-    const transcript = analysis.transcriptInput.value;
-    if (!transcript.trim()) {
-        showNotification("Lütfen analiz için bir transkript girin.", "error");
-        return;
-    }
-    
-    analysis.analyzeButton.disabled = true;
-    analysis.analyzeButton.innerHTML = `<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> Analiz Ediliyor...`;
-    analysis.output.innerHTML = '<p>Yapay zeka transkripti analiz ediyor, bu işlem biraz zaman alabilir...</p>';
-
-    try {
-        const response = await generateContentWithRetry({
-            model: 'gemini-2.5-flash',
-            contents: [{ role: 'user', parts: [{ text: transcript }] }],
-            config: {
-                systemInstruction: analysisSystemInstruction,
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                       overallSummary: { type: Type.STRING },
-                       strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-                       areasForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } },
-                       keyMomentsAnalysis: { type: Type.ARRAY, items: {
-                           type: Type.OBJECT,
-                           properties: {
-                               moment: { type: Type.STRING },
-                               analysis: { type: Type.STRING }
-                           },
-                           required: ['moment', 'analysis']
-                       }}
-                    },
-                    required: ['overallSummary', 'strengths', 'areasForImprovement', 'keyMomentsAnalysis']
-                }
-            }
-        });
-
-        const rawText = response.text.trim();
-        const jsonString = extractJsonFromString(rawText);
-
-        if (!jsonString) {
-            console.error("Invalid JSON structure received from AI for analysis:", rawText);
-            throw new Error("AI analysis response did not contain a valid JSON object.");
-        }
-        
-        try {
-            const jsonResponse = JSON.parse(jsonString);
-            renderAnalysisOutput(jsonResponse);
-            analysis.sendButton.classList.remove('hidden');
-            currentAnalysisCache = { transcript, analysis: jsonResponse };
-        } catch (parseError) {
-            console.error("Analysis Parse Error:", parseError);
-            console.error("Original raw text from AI for analysis:", rawText);
-            console.error("Extracted JSON string that failed to parse:", jsonString);
-            throw new Error("Failed to parse the JSON data from the AI analysis.");
-        }
-
-    } catch (error) {
-        console.error("Analysis Error:", error);
-        analysis.output.innerHTML = `<p class="text-red-500">Analiz sırasında bir hata oluştu. Lütfen tekrar deneyin.</p>`;
-        showNotification("Analiz başarısız oldu.", "error");
-    } finally {
-        analysis.analyzeButton.disabled = false;
-        analysis.analyzeButton.innerHTML = `<span class="material-symbols-outlined mr-2">psychology</span><span>Yapay Zeka ile Analiz Et</span>`;
-    }
-}
-
-function renderAnalysisOutput(data: any) {
-    let html = `<h3>Genel Özet</h3><p>${data.overallSummary}</p>`;
-    html += `<h3>Güçlü Yönler</h3><ul>${data.strengths.map((s: string) => `<li>${s}</li>`).join('')}</ul>`;
-    html += `<h3>Geliştirilecek Alanlar</h3><ul>${data.areasForImprovement.map((s: string) => `<li>${s}</li>`).join('')}</ul>`;
-    html += `<h3>Kritik Anlar Analizi</h3>`;
-    data.keyMomentsAnalysis.forEach((moment: any) => {
-        html += `<h4>${moment.moment}</h4><p>${moment.analysis}</p>`;
-    });
-    analysis.output.innerHTML = html;
-}
-
-function handleSendAnalysisToTeacher() {
-    if (!currentAnalysisCache) {
-        showNotification("Gönderilecek bir analiz bulunamadı.", "error");
-        return;
-    }
-
-    const allUploads = getUploadedAnalyses();
-    const uploadData = {
-        id: `upload_${Date.now()}`,
-        studentId: currentUserId,
-        ...currentAnalysisCache,
-        timestamp: new Date().toISOString(),
-        feedback: null
-    };
-    allUploads.push(uploadData);
-    localStorage.setItem('uploaded_analyses', JSON.stringify(allUploads));
-    showNotification("Analiz başarıyla öğretmene gönderildi!", "success");
-    analysis.sendButton.classList.add('hidden');
-    currentAnalysisCache = null;
-}
-
-function getUploadedAnalyses() {
-    const uploads = localStorage.getItem('uploaded_analyses');
-    return uploads ? JSON.parse(uploads) : [];
-}
-
-// --- Student-Teacher Communication ---
-function handleStudentQuestion() {
-    const question = teacherQASystem.input.value.trim();
-    if (!question) {
-        showNotification("Lütfen bir soru girin.", "error");
-        return;
-    }
-    const allQAs = getAllQAs();
-    allQAs.push({
-        id: `qa_${Date.now()}`,
-        studentId: currentUserId,
-        question: question,
-        answer: null,
-        timestamp: new Date().toISOString()
-    });
-    localStorage.setItem('student_qas', JSON.stringify(allQAs));
-    teacherQASystem.input.value = '';
-    renderQACard();
-    showNotification("Sorunuz öğretmene iletildi.", "success");
-}
-
-function getAllQAs() {
-    const qas = localStorage.getItem('student_qas');
-    return qas ? JSON.parse(qas) : [];
-}
-function getQAsForStudent(studentId: string) {
-    return getAllQAs().filter((qa: any) => qa.studentId === studentId);
-}
-
-
-// --- Utility Functions ---
-
-/**
- * Extracts a JSON object or array from a string that might contain other text.
- * It finds the first '{' or '[' and the last '}' or ']' and returns the substring between them.
- * @param text The string to search for JSON.
- * @returns The extracted JSON string, or null if no valid JSON structure is found.
- */
-function extractJsonFromString(text: string): string | null {
-    let firstBracket = text.indexOf('{');
-    let firstSquare = text.indexOf('[');
-    let firstOpen = -1;
-
-    if (firstBracket > -1 && firstSquare > -1) {
-        firstOpen = Math.min(firstBracket, firstSquare);
-    } else if (firstBracket > -1) {
-        firstOpen = firstBracket;
-    } else {
-        firstOpen = firstSquare;
-    }
-
-    if (firstOpen === -1) {
-        return null; // No JSON object or array found
-    }
-
-    let lastBracket = text.lastIndexOf('}');
-    let lastSquare = text.lastIndexOf(']');
-    let lastClose = -1;
-    
-    if (lastBracket > -1 && lastSquare > -1) {
-        lastClose = Math.max(lastBracket, lastSquare);
-    } else if (lastBracket > -1) {
-        lastClose = lastBracket;
-    } else {
-        lastClose = lastSquare;
-    }
-
-    if (lastClose === -1 || lastClose < firstOpen) {
-        return null;
-    }
-
-    return text.substring(firstOpen, lastClose + 1);
-}
-
-
-function calculateAverageScores(scores: any[]) {
-    const totals = {
-        empathy: 0, technique: 0, rapport: 0,
-        emotionalRelief: 0, cognitiveClarity: 0,
-        count: scores.length
-    };
-
-    if (totals.count === 0) return { empathy: 0, technique: 0, rapport: 0, emotionalRelief: 0, cognitiveClarity: 0 };
-
-    scores.forEach(s => {
-        totals.empathy += s.scoring.empathy;
-        totals.technique += s.scoring.technique;
-        totals.rapport += s.scoring.rapport;
-        totals.emotionalRelief += s.clientImpact.emotionalRelief;
-        totals.cognitiveClarity += s.clientImpact.cognitiveClarity;
-    });
-
-    return {
-        empathy: totals.empathy / totals.count,
-        technique: totals.technique / totals.count,
-        rapport: totals.rapport / totals.count,
-        emotionalRelief: totals.emotionalRelief / totals.count,
-        cognitiveClarity: totals.cognitiveClarity / totals.count
-    };
-}
-
-
-function showNotification(message: string, type: 'success' | 'error' | 'info') {
-    const colors = {
-        success: 'bg-green-500',
-        error: 'bg-red-500',
-        info: 'bg-blue-500',
-    };
-    const icon = {
-        success: 'check_circle',
-        error: 'error',
-        info: 'info',
-    };
-
-    const notification = document.createElement('div');
-    notification.className = `flex items-center gap-3 ${colors[type]} text-white p-4 rounded-lg shadow-lg animate-fade-in-up`;
-    notification.innerHTML = `<span class="material-symbols-outlined">${icon[type]}</span><p>${message}</p>`;
-    
-    notificationContainer.appendChild(notification);
-
-    setTimeout(() => {
-        notification.style.opacity = '0';
-        notification.style.transform = 'translateY(10px)';
-        setTimeout(() => notification.remove(), 500);
-    }, 5000);
-}
-
-// --- AI Models ---
-
-/**
- * Wraps the Gemini API call in a retry loop to handle transient errors.
- * @param params The parameters for the generateContent call.
- * @param retries The number of times to retry on failure.
- * @returns The successful response from the AI.
- * @throws The last error if all retries fail.
- */
-async function generateContentWithRetry(params: any, retries = 3) {
-    if (!ai) {
-        throw new Error("AI client is not initialized. Please set the API key.");
-    }
-
-    let lastError: any = null;
-    for (let i = 0; i < retries; i++) {
-        try {
-            const response = await ai.models.generateContent(params);
-            // The .text getter will throw an error if the response is blocked.
-            // We also check if the text is empty.
-            if (!response.text || response.text.trim() === '') {
-                throw new Error("AI returned an empty or blocked response.");
-            }
-            return response; // Success
-        } catch (error) {
-            lastError = error;
-            console.warn(`AI call attempt ${i + 1}/${retries} failed.`, error);
-            if (i < retries - 1) {
-                // Wait before retrying
-                await new Promise(resolve => setTimeout(resolve, 1500));
-            }
-        }
-    }
-    // If all retries fail, throw the last error
-    throw lastError;
-}
-
-
-async function getAiResponse(history: any[], currentScenario: Scenario) {
-    showLoaderWithOptions(true, "Yapay zeka düşünüyor...");
-    const model = 'gemini-2.5-flash';
-
-    // Create a clean history for the AI, only sending the text parts
-    const cleanHistory = history.map(turn => {
-        if (turn.role === 'model') {
-             try {
-                // Attempt to parse the model's previous response to get just the clientResponse text
-                const modelResponse = JSON.parse(turn.parts[0].text);
-                return { role: 'model', parts: [{ text: modelResponse.clientResponse }] };
-            } catch (e) {
-                // If parsing fails, it's likely the initial message, so use the text directly
-                return { role: 'model', parts: [{ text: turn.parts[0].text }] };
-            }
-        }
-        // User turns are already clean
-        return turn;
-    });
-
-    try {
-        const response = await generateContentWithRetry({
-            model: model,
-            contents: [
-                ...cleanHistory,
-            ],
-            config: {
-                systemInstruction: `${simulationSystemInstruction}\n\nDanışan Profili:\n${currentScenario.profile}`,
-                responseMimeType: "application/json",
-                responseSchema: {
-                     type: Type.OBJECT,
-                     properties: {
-                        clientResponse: { type: Type.STRING },
-                        feedback: { type: Type.STRING },
-                        rationale: { type: Type.STRING },
-                        scoring: {
-                            type: Type.OBJECT,
-                            properties: {
-                                empathy: { type: Type.NUMBER },
-                                technique: { type: Type.NUMBER },
-                                rapport: { type: Type.NUMBER }
-                            },
-                            required: ['empathy', 'technique', 'rapport']
-                        },
-                        clientImpact: {
-                            type: Type.OBJECT,
-                            properties: {
-                                emotionalRelief: { type: Type.NUMBER },
-                                cognitiveClarity: { type: Type.NUMBER }
-                            },
-                            required: ['emotionalRelief', 'cognitiveClarity']
-                        },
-                        therapistOptions: {
-                            type: Type.ARRAY,
-                            items: { type: Type.STRING }
-                        }
-                     },
-                     required: ['clientResponse', 'feedback', 'rationale', 'scoring', 'clientImpact', 'therapistOptions']
-                }
-            }
-        });
-        
-        const rawText = response.text.trim();
-        const jsonString = extractJsonFromString(rawText);
-
-        if (!jsonString) {
-            console.error("Invalid JSON structure received from AI:", rawText);
-            throw new Error("AI response did not contain a valid JSON object.");
-        }
-        
-        try {
-            const jsonResponse = JSON.parse(jsonString);
-            
-            // Add AI's cleaned JSON response to history
-            chatHistory.push({ role: 'model', parts: [{ text: jsonString }] });
-            
-            updateSimulationUI(jsonResponse);
-        } catch(parseError) {
-             console.error("AI Response Parse Error:", parseError);
-             console.error("Original raw text from AI:", rawText);
-             console.error("Extracted JSON string that failed to parse:", jsonString);
-             throw new Error("Failed to parse the JSON data from the AI.");
-        }
-
-    } catch (error) {
-        console.error("AI Response Error:", error);
-        showLoaderWithOptions(false);
-        simulation.optionsContainer.innerHTML = '<p class="text-red-500 col-span-2 text-center">Yapay zeka yanıt verirken bir hata oluştu. Lütfen sayfayı yenileyip tekrar deneyin.</p>';
-        showNotification("AI yanıt hatası.", "error");
-    } 
-}
-
-// --- Teacher Specific Functions (to be filled in) ---
-function getCustomScenarios() { return []; } // Placeholder
-
-function renderRegistrationRequests() {
-    const users = getUsers();
-    const pendingUsers = users.filter((u: any) => !u.approved);
-    requestsListContainer.innerHTML = '';
-
-    if (pendingUsers.length === 0) {
-        requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Onay bekleyen öğrenci kaydı bulunmuyor.</p>';
-        return;
-    }
-
-    pendingUsers.forEach((user: any) => {
-        const requestElement = document.createElement('div');
-        requestElement.className = 'flex items-center justify-between bg-white p-4 rounded-lg shadow-sm';
-        requestElement.innerHTML = `
-            <div>
-                <p class="font-semibold text-gray-800">${user.username}</p>
-                <p class="text-sm text-gray-500">Onay bekliyor</p>
+        <div class="p-4 sm:p-6 bg-white/70">
+            <h4 class="text-gray-700 font-bold text-lg mb-4 text-center">Sıradaki Adımınız Ne Olacak?</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="options-container">
+                <!-- Options will be appended here -->
             </div>
-            <button data-username="${user.username}" class="approve-button flex items-center justify-center rounded-lg h-10 px-4 bg-green-500 text-white font-semibold hover:bg-green-600 transition-all duration-300 shadow-sm hover:shadow-md">
-                <span class="material-symbols-outlined mr-2">check_circle</span>
-                <span>Onayla</span>
+            <div class="mt-4 pt-4 border-t border-gray-200">
+                <p class="text-center text-gray-600 mb-2 font-semibold">Veya kendi yanıtınızı yazın</p>
+                <div class="flex gap-2">
+                    <textarea id="custom-response-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 transition-shadow" rows="2" placeholder="Terapötik müdahalenizi buraya yazın..."></textarea>
+                    <button id="send-custom-response-button" class="flex-shrink-0 flex items-center justify-center rounded-lg h-full px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg disabled:bg-indigo-300">
+                        <span class="material-symbols-outlined">send</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Teacher Dashboard Screen -->
+<div id="teacher-dashboard-screen" class="screen hidden">
+    <div class="text-center">
+        <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Öğretmen Paneli</h2>
+        <p class="text-gray-600 text-lg mt-2">Öğrenci çalışmalarını ve etkileşimlerini buradan yönetin.</p>
+    </div>
+    <!-- Tabs -->
+    <div class="my-6 border-b border-gray-200">
+        <nav class="-mb-px flex space-x-6 justify-center" aria-label="Tabs">
+            <button data-tab="requests" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Kayıt İstekleri</button>
+            <button data-tab="simulations" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Simülasyonlar</button>
+            <button data-tab="uploads" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Yüklenen Seanslar</button>
+            <button data-tab="questions" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Öğrenci Soruları</button>
+            <button data-tab="analytics" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Sınıf Analitiği</button>
+            <button data-tab="builder" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Senaryo Oluşturucu</button>
+            <button data-tab="library" class="teacher-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg">Kaynak Kütüphanesi</button>
+        </nav>
+    </div>
+    <div id="teacher-content-container" class="transition-opacity duration-300">
+        <div id="simulations-content" class="teacher-content hidden"></div>
+        <div id="requests-content" class="teacher-content">
+            <div id="requests-list-container" class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4"></div>
+        </div>
+        <div id="uploads-content" class="teacher-content hidden">
+            <div id="uploads-list-container" class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-4"></div>
+        </div>
+        <div id="questions-content" class="teacher-content hidden">
+             <div id="questions-list-container" class="bg-white/70 p-6 rounded-2xl shadow-xl space-y-6"></div>
+        </div>
+        <div id="analytics-content" class="teacher-content hidden p-6 bg-white/70 rounded-2xl shadow-xl"></div>
+        <div id="builder-content" class="teacher-content hidden"></div>
+        <div id="library-content" class="teacher-content hidden"></div>
+    </div>
+</div>
+
+
+<!-- Teacher Review Screen (for Simulations) -->
+<div id="teacher-review-screen" class="screen hidden">
+    <!-- This container shows the list of sessions for a student -->
+    <div id="teacher-review-list-view">
+        <div class="flex items-center justify-between mb-6">
+            <button id="back-to-teacher-dashboard-button" class="flex items-center justify-center rounded-lg h-10 px-4 bg-white/80 text-gray-600 font-semibold hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md">
+                <span class="material-symbols-outlined mr-2">arrow_back</span>
+                <span>Tüm Öğrenciler</span>
             </button>
-        `;
-        requestsListContainer.appendChild(requestElement);
-    });
+            <h2 class="text-gray-900 tracking-tight text-2xl sm:text-3xl font-bold text-center">
+                <span id="review-list-student-name" class="text-[var(--teacher-color)]"></span> için Seans Listesi
+            </h2>
+            <div class="w-48"></div> <!-- Spacer -->
+        </div>
+        <div id="review-session-list-container" class="space-y-4 bg-white/70 p-6 rounded-2xl shadow-xl">
+            <!-- Session list will be populated here -->
+        </div>
+    </div>
 
-    document.querySelectorAll('.approve-button').forEach(button => {
-        button.addEventListener('click', (e) => {
-            const usernameToApprove = (e.currentTarget as HTMLElement).dataset.username!;
-            const allUsers = getUsers();
-            const user = allUsers.find((u: any) => u.username === usernameToApprove);
-            if (user) {
-                user.approved = true;
-                saveUsers(allUsers);
-                showNotification(`'${usernameToApprove}' adlı öğrenci onaylandı.`, 'success');
-                renderRegistrationRequests(); // Re-render the list
-            }
-        });
-    });
-}
+    <!-- This container shows the detailed view of a single session -->
+    <div id="teacher-review-detail-view" class="hidden">
+        <div class="flex flex-col gap-2 text-center">
+            <h2 class="text-gray-900 tracking-tight text-3xl sm:text-4xl font-bold">Simülasyon İncelemesi</h2>
+            <p class="text-gray-600 text-lg">
+                <span id="review-student-name" class="font-semibold text-[var(--teacher-color)]"></span> adlı öğrencinin <span id="review-problem-display" class="font-semibold text-[var(--teacher-color)]"></span> konulu seansını inceliyorsunuz.
+            </p>
+        </div>
+        <div class="bg-white/60 backdrop-blur-lg rounded-2xl flex-1 flex flex-col shadow-xl overflow-hidden mt-6">
+            <div class="p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center">
+                <button id="back-to-session-list-button" class="flex items-center justify-center rounded-lg h-10 px-4 bg-white/80 text-gray-600 font-semibold hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md">
+                    <span class="material-symbols-outlined mr-2">arrow_back</span>
+                    <span>Seans Listesine Dön</span>
+                </button>
+                <h3 class="text-gray-800 text-xl sm:text-2xl font-bold">Seans Akışı</h3>
+                <div class="w-48"></div> <!-- Spacer -->
+            </div>
+            <div class="p-4 sm:p-6 space-y-6 flex-1 overflow-y-auto h-96" id="review-chat-container">
+                <!-- Review messages will be appended here -->
+            </div>
+             <div id="review-feedback-section" class="p-4 sm:p-6 border-t border-b border-gray-200 bg-white/20">
+                <!-- Review graphs will be shown here -->
+             </div>
+            <div class="p-4 sm:p-6 bg-white/70">
+                <h4 class="text-gray-700 font-bold text-lg mb-4 text-center">Öğrenciye Genel Geri Bildirim Ekle</h4>
+                <div class="flex flex-col gap-3">
+                    <textarea id="feedback-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 transition-shadow" rows="3" placeholder="Seansın geneline yönelik geri bildiriminizi buraya yazın..."></textarea>
+                    <button id="submit-feedback-button" class="flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 text-md shadow-md hover:shadow-lg">
+                        <span class="material-symbols-outlined mr-2">send</span>
+                        <span>Genel Geri Bildirim Gönder</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Teacher Upload Review Screen -->
+<div id="teacher-upload-review-screen" class="screen hidden w-full">
+     <div class="flex items-center justify-between mb-6">
+        <button id="back-to-dashboard-from-upload-review" class="flex items-center justify-center rounded-lg h-10 px-4 bg-white/80 text-gray-600 font-semibold hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md">
+            <span class="material-symbols-outlined mr-2">arrow_back</span>
+            <span>Panele Dön</span>
+        </button>
+        <h2 class="text-gray-900 tracking-tight text-2xl sm:text-3xl font-bold text-center">Yüklenen Seans İncelemesi</h2>
+        <div class="w-32"></div>
+     </div>
+     <p class="text-center text-gray-600 text-lg -mt-2 mb-4">
+        Öğrenci: <span id="upload-review-student-name" class="font-semibold text-[var(--teacher-color)]"></span>
+     </p>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">Öğrencinin Yüklediği Transkript</h3>
+            <div id="upload-review-transcript" class="prose max-w-none p-4 bg-gray-50/50 rounded-lg h-96 overflow-y-auto"></div>
+        </div>
+        <div class="bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">Yapay Zeka Analizi</h3>
+            <div id="upload-review-analysis" class="prose max-w-none p-4 bg-gray-50/50 rounded-lg h-96 overflow-y-auto"></div>
+        </div>
+    </div>
+    <div class="mt-8 bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl">
+        <h3 class="text-xl font-bold text-gray-800 text-center mb-4">Bu Analize Geri Bildirim Ekle</h3>
+        <textarea id="upload-feedback-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 transition-shadow" rows="4" placeholder="Yapay zeka analizine ve transkripte yönelik genel geri bildiriminizi buraya yazın..."></textarea>
+        <button id="submit-upload-feedback-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 shadow-md hover:shadow-lg">
+            <span class="material-symbols-outlined mr-2">send</span>
+            <span>Geri Bildirim Gönder</span>
+        </button>
+    </div>
+</div>
 
 
-function renderTeacherDashboard() {
-    // This function will render the content based on the activeTeacherTab
-    Object.values(teacherDashboard.contents).forEach(content => content.classList.add('hidden'));
-    teacherDashboard.tabs.forEach(tab => {
-        const tabName = (tab as HTMLElement).dataset.tab!;
-        if (tabName === activeTeacherTab) {
-            tab.classList.add('border-[var(--teacher-color)]', 'text-[var(--teacher-color)]');
-            tab.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-            teacherDashboard.contents[tabName as keyof typeof teacherDashboard.contents].classList.remove('hidden');
-        } else {
-             tab.classList.remove('border-[var(--teacher-color)]', 'text-[var(--teacher-color)]');
-             tab.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-        }
-    });
 
-    // Render content for the active tab
-    switch (activeTeacherTab) {
-        case 'requests':
-            renderRegistrationRequests();
-            break;
-        case 'simulations':
-            // renderStudentSimulationsList();
-            break;
-        case 'uploads':
-            // renderUploadedAnalysesList();
-            break;
-        case 'questions':
-            // renderStudentQuestions();
-            break;
-        case 'analytics':
-            // renderClassAnalytics();
-            break;
-         case 'builder':
-            // renderScenarioBuilder();
-            break;
-         case 'library':
-            // renderResourceLibrary();
-            break;
-    }
-}
+</div>
+</main>
+</div>
+</div>
+<!-- Modals -->
+<div id="api-key-modal" class="modal hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full relative p-8 animate-fade-in-up">
+        <div class="flex items-center gap-3 mb-4">
+            <span class="material-symbols-outlined text-4xl text-[var(--teacher-color)]">manage_accounts</span>
+            <div>
+                <h3 class="text-2xl font-bold text-gray-800">Öğretmen Kurulumu: API Anahtarı</h3>
+                <p class="text-gray-500">Sistemi etkinleştirmek için Gemini API anahtarınızı girin.</p>
+            </div>
+        </div>
+        <div class="mt-6 space-y-2">
+            <label for="api-key-input" class="block text-sm font-medium text-gray-700">API Anahtarınız</label>
+            <input type="password" id="api-key-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-lg p-3 transition-shadow" placeholder="•••••••••••••••••••••••••••••••">
+            <p class="text-xs text-gray-500">Anahtarınız bu tarayıcıya kaydedilecek ve tüm öğrenci oturumları için kullanılacaktır. Kimseyle paylaşılmaz.</p>
+        </div>
+        <button id="save-api-key-button" class="mt-6 w-full flex items-center justify-center rounded-lg h-14 px-8 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all duration-300 text-lg shadow-lg hover:shadow-amber-300">
+            <span>Kaydet ve Sistemi Etkinleştir</span>
+        </button>
+    </div>
+</div>
+
+<div id="rationale-modal" class="modal hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full relative p-6 animate-fade-in-up">
+        <button id="close-modal-button" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 transition-colors">
+            <span class="material-symbols-outlined">close</span>
+        </button>
+        <div class="flex items-center gap-3 mb-4">
+            <span class="material-symbols-outlined text-3xl text-indigo-500">lightbulb</span>
+            <h3 id="modal-title" class="text-xl font-bold text-gray-800">Terapötik Gerekçe</h3>
+        </div>
+        <div id="modal-content" class="text-gray-600 prose max-w-none"></div>
+    </div>
+</div>
+
+<div id="ai-summary-modal" class="modal hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-2xl w-full relative p-6 animate-fade-in-up">
+        <button id="close-summary-modal-button" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 transition-colors">
+            <span class="material-symbols-outlined">close</span>
+        </button>
+        <div class="flex items-center gap-3 mb-4">
+            <span class="material-symbols-outlined text-3xl text-[var(--teacher-color)]">auto_awesome</span>
+            <h3 id="summary-modal-title" class="text-xl font-bold text-gray-800">AI Performans Özeti</h3>
+        </div>
+        <div id="summary-modal-content" class="text-gray-600 prose max-w-none h-96 overflow-y-auto"></div>
+    </div>
+</div>
+
+
+<div id="notification-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2"></div>
+<script type="module" src="index.tsx"></script>
+</body></html>
