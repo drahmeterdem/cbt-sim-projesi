@@ -436,7 +436,7 @@ function toggleLoginViews(view: 'login' | 'register' | 'teacher') {
 }
 
 async function handleLogin() {
-    const username = usernameInput.value.trim();
+    const username = usernameInput.value.trim().toLowerCase();
     const password = passwordInput.value.trim();
     loginError.classList.add('hidden');
 
@@ -469,7 +469,7 @@ async function handleLogin() {
 }
 
 async function handleRegister() {
-    const username = registerUsernameInput.value.trim();
+    const username = registerUsernameInput.value.trim().toLowerCase();
     const password = registerPasswordInput.value.trim();
     const confirmPassword = registerConfirmPasswordInput.value.trim();
     registerError.classList.add('hidden');
@@ -1213,7 +1213,16 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
 
 async function handleApproveRequest(usernameToApprove: string) {
     if (usernameToApprove) {
+        // Approve the user in the 'users' collection
         await db.updateData('users', usernameToApprove, { approved: true });
+        
+        // Create the corresponding main document in the 'students' collection
+        // This ensures subcollections like 'sessions' can be added later.
+        await db.setData('students', usernameToApprove, {
+             username: usernameToApprove,
+             joinedAt: new Date().toISOString()
+        });
+
         showNotification(`'${usernameToApprove}' adlı öğrenci onaylandı.`, 'success');
         await renderRegistrationRequests();
     }
