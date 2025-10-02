@@ -1,157 +1,142 @@
-// This is a placeholder for Firebase SDK types.
-// In a real project, you would install firebase and use its types.
+// This file assumes firebase-app-compat.js and firebase-firestore-compat.js are loaded in index.html
+// We declare firebase here to inform TypeScript that it will be available globally.
 declare const firebase: any;
 
-// --- Firebase Initialization ---
+let db: any = null;
 
-// #############################################################################
-// #                                                                           #
-// #    ÖNEMLİ UYARI: LÜTFEN BU BÖLÜMÜ KENDİ FIREBASE PROJE                    #
-// #    BİLGİLERİNİZLE GÜNCELLEYİN. Aksi takdirde uygulama çalışmayacaktır.    #
-// #    Firebase konsolundan (console.firebase.google.com) proje              #
-// #    ayarlarından bu bilgileri alabilirsiniz.                               #
-// #                                                                           #
-// #############################################################################
-
-export const firebaseConfig = {
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-  apiKey: "AIzaSyBMOhPCumWJncjfch4GhdPEnwO03c_8o5E",
-  authDomain: "cbt-sim-projesi.firebaseapp.com",
-  projectId: "cbt-sim-projesi",
-  storageBucket: "cbt-sim-projesi.firebasestorage.app",
-  messagingSenderId: "869396190469",
-  appId: "1:869396190469:web:c6db6adefbd2c17e86d36c",
-  measurementId: "G-9S9PYC74LR"
-};
-
-// Initialize Firebase
-const app = firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db = firebase.firestore();
-
-
-// --- Authentication Functions ---
+export function isDbConnected(): boolean {
+    return db !== null;
+}
 
 /**
- * Creates a new user with username and password.
- * Stores user info in Firestore with 'pending' status.
+ * Initializes the Firebase application and Firestore database.
+ * @param config - The Firebase configuration object from your project settings.
+ * @returns True if initialization is successful, false otherwise.
  */
-export async function registerUser(username: string, password: string): Promise<any> {
-    // Firebase Auth doesn't support usernames directly, we'll use an email format.
-    const email = `${username.toLowerCase()}@cbt-sim.app`;
-    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-    const user = userCredential.user;
-
-    // Create a corresponding user document in Firestore's 'users' collection
-    if (user) {
-        await db.collection('users').doc(user.uid).set({
-            username: username,
-            status: 'pending' // 'pending', 'approved', 'rejected'
-        });
+export function initializeFirebase(config: object): boolean {
+    try {
+        // Avoid re-initializing the app
+        if (firebase.apps.length === 0) {
+            firebase.initializeApp(config);
+        }
+        db = firebase.firestore();
+        console.log("Firebase and Firestore initialized successfully.");
+        return true;
+    } catch (error) {
+        console.error("Firebase initialization failed:", error);
+        db = null;
+        return false;
     }
-    return user;
+}
+
+// --- Generic Data Access Functions ---
+
+/**
+ * Sets or overwrites a document with a specific ID in a collection.
+ * @param collectionPath - The path to the collection (e.g., 'users').
+ * @param docId - The ID for the document.
+ * @param data - The data to save.
+ */
+export async function setData(collectionPath: string, docId: string, data: any): Promise<void> {
+    if (!db) throw new Error("Database not initialized.");
+    await db.collection(collectionPath).doc(docId).set(data);
 }
 
 /**
- * Signs in a user with username and password.
+ * Updates an existing document. Fails if the document doesn't exist.
+ * @param collectionPath - The path to the collection.
+ * @param docId - The ID of the document to update.
+ * @param data - An object containing the fields to update.
  */
-export async function loginUser(username: string, password: string): Promise<any> {
-    const email = `${username.toLowerCase()}@cbt-sim.app`;
-    const userCredential = await auth.signInWithEmailAndPassword(email, password);
-    return userCredential.user;
+export async function updateData(collectionPath: string, docId: string, data: any): Promise<void> {
+    if (!db) throw new Error("Database not initialized.");
+    await db.collection(collectionPath).doc(docId).update(data);
 }
 
 /**
- * Signs out the current user.
+ * Retrieves a single document by its ID from a collection.
+ * @param collectionPath - The path to the collection.
+ * @param docId - The ID of the document.
+ * @returns The document data if it exists, otherwise null.
  */
-export function logoutUser(): Promise<void> {
-    return auth.signOut();
+export async function getData(collectionPath: string, docId: string): Promise<any | null> {
+    if (!db) throw new Error("Database not initialized.");
+    const doc = await db.collection(collectionPath).doc(docId).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } : null;
 }
 
 /**
- * Sets up a listener for authentication state changes.
- * The callback will receive the user object on login/logout.
+ * Retrieves all documents from a collection.
+ * @param collectionPath - The path to the collection.
+ * @returns An array of document data.
  */
-export function onAuthStateChanged(callback: (user: any) => void): () => void {
-    return auth.onAuthStateChanged(callback);
-}
-
-
-// --- User & State Data Functions ---
-
-/**
- * Gets a user's profile data (like status and username) from Firestore.
- */
-export async function getUserData(userId: string): Promise<any | null> {
-    const userDoc = await db.collection('users').doc(userId).get();
-    if (userDoc.exists) {
-        return userDoc.data();
-    }
-    return null;
-}
-
-/**
- * Saves the entire student state object to their document in Firestore.
- */
-export async function saveState(userId: string, state: object): Promise<void> {
-    if (!userId) return;
-    // We store student-specific data in a separate 'studentStates' collection
-    await db.collection('studentStates').doc(userId).set(state, { merge: true });
-}
-
-/**
- * Loads the entire student state object from their document in Firestore.
- */
-export async function loadState(userId: string): Promise<any | null> {
-    if (!userId) return null;
-    const stateDoc = await db.collection('studentStates').doc(userId).get();
-    if (stateDoc.exists) {
-        return stateDoc.data();
-    }
-    return null; // The main app logic will handle creating an initial state if this is null
-}
-
-
-// --- Teacher/Admin Functions ---
-
-/**
- * Fetches all users who have a 'pending' status.
- */
-export async function getPendingUsers(): Promise<any[]> {
-    const snapshot = await db.collection('users').where('status', '==', 'pending').get();
+export async function getCollection(collectionPath: string): Promise<any[]> {
+    if (!db) throw new Error("Database not initialized.");
+    const snapshot = await db.collection(collectionPath).get();
     return snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
 }
 
 /**
- * Fetches all users who have an 'approved' status.
+ * Retrieves documents from a collection based on a query.
+ * @param collectionPath - The path to the collection.
+ * @param field - The field to query on.
+ * @param operator - The query operator (e.g., '==', '>', '<').
+ * @param value - The value to compare against.
+ * @returns An array of matching document data.
  */
-export async function getApprovedStudents(): Promise<any[]> {
-    const snapshot = await db.collection('users').where('status', '==', 'approved').get();
+export async function getCollectionWhere(collectionPath: string, field: string, operator: string, value: any): Promise<any[]> {
+    if (!db) throw new Error("Database not initialized.");
+    const snapshot = await db.collection(collectionPath).where(field, operator, value).get();
     return snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
 }
 
 /**
- * Updates a user's status in their Firestore document.
+ * Deletes a document from a collection.
+ * @param collectionPath - The path to the collection.
+ * @param docId - The ID of the document to delete.
  */
-export async function updateUserStatus(userId: string, status: 'approved' | 'rejected'): Promise<void> {
-    await db.collection('users').doc(userId).update({ status });
+export async function deleteData(collectionPath: string, docId: string): Promise<void> {
+    if (!db) throw new Error("Database not initialized.");
+    await db.collection(collectionPath).doc(docId).delete();
 }
 
 /**
- * Saves API keys to a dedicated settings document in Firestore.
+ * Adds a new document to a subcollection.
+ * @param parentCollection - The path of the parent collection.
+ * @param parentDocId - The ID of the parent document.
+ * @param subcollection - The name of the subcollection.
+ * @param data - The data for the new document.
+ * @returns The ID of the newly created document.
  */
-export async function saveApiKeys(keys: { googleApiKey?: string; openaiApiKey?: string }): Promise<void> {
-    // Use a specific document ID for easy retrieval
-    await db.collection('settings').doc('apiKeys').set(keys, { merge: true });
+export async function addDataToSubcollection(parentCollection: string, parentDocId: string, subcollection: string, data: any): Promise<string> {
+    if (!db) throw new Error("Database not initialized.");
+    const docRef = await db.collection(parentCollection).doc(parentDocId).collection(subcollection).add(data);
+    return docRef.id;
 }
 
 /**
- * Retrieves API keys from the settings document in Firestore.
+ * Gets all documents from a subcollection.
+ * @param parentCollection - The path of the parent collection.
+ * @param parentDocId - The ID of the parent document.
+ * @param subcollection - The name of the subcollection.
+ * @returns An array of document data from the subcollection.
  */
-export async function getApiKeys(): Promise<{ googleApiKey?: string; openaiApiKey?: string } | null> {
-    const doc = await db.collection('settings').doc('apiKeys').get();
-    if (doc.exists) {
-        return doc.data() as { googleApiKey?: string; openaiApiKey?: string };
-    }
-    return null;
+export async function getSubcollection(parentCollection: string, parentDocId: string, subcollection: string): Promise<any[]> {
+    if (!db) throw new Error("Database not initialized.");
+    const snapshot = await db.collection(parentCollection).doc(parentDocId).collection(subcollection).get();
+    return snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+}
+
+
+/**
+ * Sets or overwrites a document with a specific ID in a subcollection.
+ * @param parentCollection - The path of the parent collection.
+ * @param parentDocId - The ID of the parent document.
+ * @param subcollection - The name of the subcollection.
+ * @param docId - The ID for the document within the subcollection.
+ * @param data - The data to save.
+ */
+export async function setDataInSubcollection(parentCollection: string, parentDocId: string, subcollection: string, docId: string, data: any): Promise<void> {
+    if (!db) throw new Error("Database not initialized.");
+    await db.collection(parentCollection).doc(parentDocId).collection(subcollection).doc(docId).set(data);
 }
