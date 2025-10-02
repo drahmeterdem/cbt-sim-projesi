@@ -830,7 +830,7 @@ async function handleAnalyzeTranscript() {
     analysis.output.innerHTML = '<p>Yapay zeka transkripti analiz ediyor, bu işlem biraz zaman alabilir...</p>';
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await generateContentWithRetry({
             model: 'gemini-2.5-flash',
             contents: [{ role: 'user', parts: [{ text: transcript }] }],
             config: {
@@ -1052,6 +1052,38 @@ function showNotification(message: string, type: 'success' | 'error' | 'info') {
 
 // --- AI Models ---
 
+/**
+ * Wraps the Gemini API call in a retry loop to handle transient errors.
+ * @param params The parameters for the generateContent call.
+ * @param retries The number of times to retry on failure.
+ * @returns The successful response from the AI.
+ * @throws The last error if all retries fail.
+ */
+async function generateContentWithRetry(params: any, retries = 3) {
+    let lastError: any = null;
+    for (let i = 0; i < retries; i++) {
+        try {
+            const response = await ai.models.generateContent(params);
+            // The .text getter will throw an error if the response is blocked.
+            // We also check if the text is empty.
+            if (!response.text || response.text.trim() === '') {
+                throw new Error("AI returned an empty or blocked response.");
+            }
+            return response; // Success
+        } catch (error) {
+            lastError = error;
+            console.warn(`AI call attempt ${i + 1}/${retries} failed.`, error);
+            if (i < retries - 1) {
+                // Wait before retrying
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+        }
+    }
+    // If all retries fail, throw the last error
+    throw lastError;
+}
+
+
 async function getAiResponse(history: any[], currentScenario: Scenario) {
     showLoaderWithOptions(true, "Yapay zeka düşünüyor...");
     const model = 'gemini-2.5-flash';
@@ -1073,7 +1105,7 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
     });
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await generateContentWithRetry({
             model: model,
             contents: [
                 ...cleanHistory,
