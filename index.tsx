@@ -1298,7 +1298,10 @@ async function renderRegistrationRequests() {
         requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
         return;
     }
-    const pendingUsers = await db.getCollectionWhere('users', 'approved', '==', false);
+    // More robust way to get pending users to avoid potential Firestore indexing issues.
+    const allUsers = await db.getCollection('users');
+    const pendingUsers = allUsers.filter((user: any) => user.approved === false);
+
     requestsListContainer.innerHTML = '';
     if (pendingUsers.length === 0) {
         requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Onay bekleyen öğrenci kaydı bulunmuyor.</p>';
