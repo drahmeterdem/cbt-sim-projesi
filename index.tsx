@@ -35,9 +35,6 @@ let currentScreen: keyof typeof screens | null = null;
 let activeTeacherTab: string = 'requests'; // Default to requests for teacher workflow
 let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
 
-const TEACHER_PASSWORD = 'teacher3243';
-
-
 // --- DOM Element References ---
 const screens = {
     welcome: document.getElementById('welcome-screen')!,
@@ -63,11 +60,8 @@ const notificationContainer = document.getElementById('notification-container')!
 // Login/Register Screen
 const loginView = document.getElementById('login-view')!;
 const registerView = document.getElementById('register-view')!;
-const teacherLoginView = document.getElementById('teacher-login-view')!;
 const showRegisterView = document.getElementById('show-register-view')!;
 const showLoginView = document.getElementById('show-login-view')!;
-const showTeacherLoginView = document.getElementById('show-teacher-login-view')!;
-const showStudentLoginView = document.getElementById('show-student-login-view')!;
 const emailInput = document.getElementById('email-input') as HTMLInputElement;
 const passwordInput = document.getElementById('password-input') as HTMLInputElement;
 const loginButton = document.getElementById('login-button')! as HTMLButtonElement;
@@ -75,12 +69,10 @@ const registerEmailInput = document.getElementById('register-email-input') as HT
 const registerPasswordInput = document.getElementById('register-password-input') as HTMLInputElement;
 const registerConfirmPasswordInput = document.getElementById('register-confirm-password-input') as HTMLInputElement;
 const registerButton = document.getElementById('register-button')! as HTMLButtonElement;
-const teacherPasswordInput = document.getElementById('teacher-password-input') as HTMLInputElement;
-const teacherLoginButton = document.getElementById('teacher-login-button')! as HTMLButtonElement;
 const loginError = document.getElementById('login-error')!;
 const registerError = document.getElementById('register-error')!;
 const registerSuccess = document.getElementById('register-success')!;
-const teacherLoginError = document.getElementById('teacher-login-error')!;
+
 
 // Problem Selection
 const problemSelectionContainer = document.getElementById('problem-selection-container')!;
@@ -276,15 +268,15 @@ async function initializeApp() {
         if (user) {
             // User is signed in.
             const userProfile = await db.getData('users', user.uid);
-            // This is a temporary check for teacher login which doesn't have a user profile
-            if (user.email === 'teacher@admin.com') { 
-                currentUserId = 'teacher';
-                 if (!ai) {
+            
+            if (userProfile && userProfile.role === 'teacher') {
+                currentUserId = user.uid;
+                if (!ai) {
                     activeTeacherTab = 'settings';
                     showNotification("Lütfen sistemi etkinleştirmek için Gemini API anahtarınızı girin.", "info");
                 }
                 showScreen('teacherDashboard');
-            } else if (userProfile && userProfile.approved) {
+            } else if (userProfile && userProfile.role === 'student' && userProfile.approved) {
                 currentUserId = user.uid;
                 currentStudentName = user.email; // Use email for display name
                 showScreen('studentDashboard');
@@ -295,27 +287,17 @@ async function initializeApp() {
                 loginError.classList.remove('hidden');
                 await db.signOut();
             } else {
-                 // This case might happen if user is in Auth but not in DB.
+                 // This case might happen if user is in Auth but not in DB (e.g., failed registration step).
                  showScreen('login');
-                 loginError.textContent = "Kullanıcı profili bulunamadı. Lütfen tekrar kayıt olun.";
+                 loginError.textContent = "Kullanıcı profili bulunamadı. Lütfen tekrar kayıt olun veya yöneticiyle iletişime geçin.";
                  loginError.classList.remove('hidden');
                  await db.signOut();
             }
         } else {
             // User is signed out.
-            const teacherSession = safeJsonParse('teacher_session', null);
-            if (teacherSession) {
-                 currentUserId = 'teacher';
-                 if (!ai) {
-                    activeTeacherTab = 'settings';
-                    showNotification("Lütfen sistemi etkinleştirmek için Gemini API anahtarınızı girin.", "info");
-                }
-                showScreen('teacherDashboard');
-            } else {
-                currentUserId = '';
-                currentStudentName = '';
-                showScreen('welcome');
-            }
+            currentUserId = '';
+            currentStudentName = '';
+            showScreen('welcome');
         }
     });
 }
@@ -386,11 +368,8 @@ function setupEventListeners() {
     goToLoginButton.addEventListener('click', () => showScreen('login'));
     loginButton.addEventListener('click', handleLogin);
     registerButton.addEventListener('click', handleRegister);
-    teacherLoginButton.addEventListener('click', handleTeacherLogin);
     showRegisterView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('register'); });
     showLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('login'); });
-    showTeacherLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('teacher'); });
-    showStudentLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('login'); });
     logoutButton.addEventListener('click', logout);
     backToSelectionButton.addEventListener('click', () => showScreen('problemSelection'));
     saveProgressButton.addEventListener('click', saveSessionProgress);
@@ -445,18 +424,15 @@ function setupEventListeners() {
 
 // --- Authentication & User Management ---
 
-function toggleLoginViews(view: 'login' | 'register' | 'teacher') {
+function toggleLoginViews(view: 'login' | 'register') {
     loginView.classList.add('hidden');
     registerView.classList.add('hidden');
-    teacherLoginView.classList.add('hidden');
     loginError.classList.add('hidden');
     registerError.classList.add('hidden');
-    teacherLoginError.classList.add('hidden');
     registerSuccess.classList.add('hidden');
 
     if (view === 'login') loginView.classList.remove('hidden');
     if (view === 'register') registerView.classList.remove('hidden');
-    if (view === 'teacher') teacherLoginView.classList.remove('hidden');
 }
 
 function getFirebaseAuthErrorMessage(error: any): string {
@@ -495,7 +471,7 @@ async function handleLogin() {
 
     try {
         await db.signInWithEmail(email, password);
-        // onAuthStateChanged will handle routing
+        // onAuthStateChanged will handle routing to the correct dashboard
     } catch (error) {
         console.error("Login failed:", error);
         loginError.textContent = getFirebaseAuthErrorMessage(error);
@@ -527,6 +503,11 @@ async function handleRegister() {
         registerError.classList.remove('hidden');
         return;
     }
+    if (email === 'teacher@admin.com') { // Prevent registration with teacher email
+        registerError.textContent = "Bu e-posta adresi yönetici için ayrılmıştır.";
+        registerError.classList.remove('hidden');
+        return;
+    }
 
     registerButton.disabled = true;
     registerButton.textContent = 'Kayıt Yapılıyor...';
@@ -535,19 +516,34 @@ async function handleRegister() {
         const userCredential = await db.signUpWithEmail(email, password);
         const user = userCredential.user;
 
-        // Create a user profile in Firestore
+        // 1. Create a user profile in 'users' collection
         const newUserProfile = { 
             email: user.email, 
             approved: false,
+            role: 'student',
             createdAt: new Date().toISOString()
         };
         await db.setData('users', user.uid, newUserProfile);
+
+        // 2. Create a request in 'registrationRequests' for the teacher
+        const newRequest = {
+            email: user.email,
+            uid: user.uid,
+            timestamp: new Date().toISOString()
+        };
+        await db.setData('registrationRequests', user.uid, newRequest);
+
 
         registerSuccess.textContent = "Kayıt başarılı! Hesabınız öğretmen tarafından onaylandıktan sonra giriş yapabilirsiniz.";
         registerSuccess.classList.remove('hidden');
         registerEmailInput.value = '';
         registerPasswordInput.value = '';
         registerConfirmPasswordInput.value = '';
+        
+        // Sign the user out immediately after registration
+        await db.signOut();
+        setTimeout(() => toggleLoginViews('login'), 3000);
+
 
     } catch (error) {
         console.error("Registration failed:", error);
@@ -559,33 +555,11 @@ async function handleRegister() {
     }
 }
 
-async function handleTeacherLogin() {
-    const password = teacherPasswordInput.value;
-    teacherLoginError.classList.add('hidden');
-
-    if (password === TEACHER_PASSWORD) {
-        // We use a simple local storage flag for teacher session persistence
-        // as they don't have a real account in Firebase Auth.
-        localStorage.setItem('teacher_session', JSON.stringify({ active: true }));
-        currentUserId = 'teacher';
-        showScreen('teacherDashboard');
-    } else {
-        teacherLoginError.textContent = "Geçersiz yönetici şifresi.";
-        teacherLoginError.classList.remove('hidden');
-    }
-}
 
 async function logout() {
-    const isTeacher = currentUserId === 'teacher';
-    if (isTeacher) {
-        localStorage.removeItem('teacher_session');
-    } else {
-        await db.signOut();
-    }
-    
+    await db.signOut();
     currentUserId = '';
     currentStudentName = '';
-    // onAuthStateChanged or a reload will handle routing to welcome screen
     window.location.reload();
 }
 
@@ -1274,23 +1248,28 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
 // --- Teacher Specific Functions ---
 
 async function handleApproveRequest(uidToApprove: string) {
-    if (uidToApprove) {
-        await db.updateData('users', uidToApprove, { approved: true });
-        
-        // Create the corresponding main document in the 'students' collection
-        // using the UID as the document ID.
-        const userProfile = await db.getData('users', uidToApprove);
-        if (userProfile) {
-            await db.setData('students', uidToApprove, {
-                email: userProfile.email,
-                joinedAt: new Date().toISOString()
-            });
-            showNotification(`'${userProfile.email}' adlı öğrenci onaylandı.`, 'success');
-        } else {
-             showNotification(`Onaylanacak kullanıcı profili bulunamadı.`, 'error');
-        }
-        await renderRegistrationRequests();
+    if (!uidToApprove) return;
+
+    // 1. Update the user's profile to be approved
+    await db.updateData('users', uidToApprove, { approved: true });
+
+    // 2. Delete the request from the registrationRequests collection
+    await db.deleteData('registrationRequests', uidToApprove);
+
+    // 3. Create the main student document in the 'students' collection for session data
+    const userProfile = await db.getData('users', uidToApprove);
+    if (userProfile) {
+        await db.setData('students', uidToApprove, {
+            email: userProfile.email,
+            joinedAt: userProfile.createdAt || new Date().toISOString()
+        });
+        showNotification(`'${userProfile.email}' adlı öğrenci onaylandı.`, 'success');
+    } else {
+        showNotification(`Onaylanacak kullanıcı profili bulunamadı.`, 'error');
     }
+    
+    // 4. Refresh the requests list
+    await renderRegistrationRequests();
 }
 
 async function renderRegistrationRequests() {
@@ -1298,21 +1277,23 @@ async function renderRegistrationRequests() {
         requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
         return;
     }
-    // More robust way to get pending users to avoid potential Firestore indexing issues.
-    const allUsers = await db.getCollection('users');
-    const pendingUsers = allUsers.filter((user: any) => user.approved === false);
+    // Fetch directly from the dedicated requests collection for stability
+    const pendingRequests = await db.getCollection('registrationRequests');
 
     requestsListContainer.innerHTML = '';
-    if (pendingUsers.length === 0) {
+    if (pendingRequests.length === 0) {
         requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Onay bekleyen öğrenci kaydı bulunmuyor.</p>';
         return;
     }
-    pendingUsers.forEach((user: any) => {
+
+    pendingRequests.sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // oldest first
+
+    pendingRequests.forEach((request: any) => {
         const requestElement = document.createElement('div');
         requestElement.className = 'flex items-center justify-between bg-white p-4 rounded-lg shadow-sm';
         requestElement.innerHTML = `
-            <div><p class="font-semibold text-gray-800">${user.email}</p><p class="text-sm text-gray-500">Onay bekliyor</p></div>
-            <button data-uid="${user.id}" class="approve-button flex items-center justify-center rounded-lg h-10 px-4 bg-green-500 text-white font-semibold hover:bg-green-600 transition-all duration-300 shadow-sm hover:shadow-md">
+            <div><p class="font-semibold text-gray-800">${request.email}</p><p class="text-sm text-gray-500">Kayıt Tarihi: ${new Date(request.timestamp).toLocaleString('tr-TR')}</p></div>
+            <button data-uid="${request.uid}" class="approve-button flex items-center justify-center rounded-lg h-10 px-4 bg-green-500 text-white font-semibold hover:bg-green-600 transition-all duration-300 shadow-sm hover:shadow-md">
                 <span class="material-symbols-outlined mr-2">check_circle</span><span>Onayla</span>
             </button>
         `;
@@ -1371,6 +1352,9 @@ async function renderStudentSimulationsList() {
     const studentList = document.createElement('div');
     studentList.className = 'space-y-3';
     students.forEach(student => {
+        // Exclude teacher from this list
+        if (student.role === 'teacher') return;
+
         studentList.innerHTML += `
             <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
                 <p class="font-semibold text-gray-800">${student.email}</p>
@@ -1571,11 +1555,13 @@ async function renderClassAnalytics() {
         return;
     }
     
-    const students = await db.getCollectionWhere('users', 'approved', '==', true);
+    const students = await db.getCollectionWhere('users', 'role', '==', 'student');
     let allSessions: any[] = [];
     for (const student of students) {
-        const studentSessions = await getAllSessionsForStudent(student.id);
-        allSessions.push(...studentSessions);
+        if(student.approved) { // Only count approved students' sessions
+            const studentSessions = await getAllSessionsForStudent(student.id);
+            allSessions.push(...studentSessions);
+        }
     }
     const allScores = allSessions.flatMap(s => s.scores);
     
@@ -1596,7 +1582,7 @@ async function renderClassAnalytics() {
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
             <div class="bg-white p-6 rounded-lg shadow-md">
                 <span class="material-symbols-outlined text-4xl text-indigo-500">group</span>
-                <p class="text-3xl font-bold text-gray-800 mt-2">${students.length}</p>
+                <p class="text-3xl font-bold text-gray-800 mt-2">${students.filter(s=>s.approved).length}</p>
                 <p class="text-gray-500">Onaylı Öğrenci</p>
             </div>
             <div class="bg-white p-6 rounded-lg shadow-md">
