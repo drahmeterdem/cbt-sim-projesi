@@ -27,7 +27,7 @@ const API_KEY_STORAGE_KEY = 'gemini_api_key';
 
 // --- Global State & Constants ---
 let currentStudentName: string = '';
-let currentUserId: string = ''; // Will now store username
+let currentUserId: string = ''; // Will now store Firebase Auth UID
 let reviewingStudentId: string = '';
 let reviewingSessionId: string = '';
 let reviewingUploadId: string = '';
@@ -36,7 +36,6 @@ let activeTeacherTab: string = 'requests'; // Default to requests for teacher wo
 let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
 
 const TEACHER_PASSWORD = 'teacher3243';
-const SESSION_KEY = 'cbt_sim_session_v1';
 
 
 // --- DOM Element References ---
@@ -69,10 +68,10 @@ const showRegisterView = document.getElementById('show-register-view')!;
 const showLoginView = document.getElementById('show-login-view')!;
 const showTeacherLoginView = document.getElementById('show-teacher-login-view')!;
 const showStudentLoginView = document.getElementById('show-student-login-view')!;
-const usernameInput = document.getElementById('username-input') as HTMLInputElement;
+const emailInput = document.getElementById('email-input') as HTMLInputElement;
 const passwordInput = document.getElementById('password-input') as HTMLInputElement;
 const loginButton = document.getElementById('login-button')! as HTMLButtonElement;
-const registerUsernameInput = document.getElementById('register-username-input') as HTMLInputElement;
+const registerEmailInput = document.getElementById('register-email-input') as HTMLInputElement;
 const registerPasswordInput = document.getElementById('register-password-input') as HTMLInputElement;
 const registerConfirmPasswordInput = document.getElementById('register-confirm-password-input') as HTMLInputElement;
 const registerButton = document.getElementById('register-button')! as HTMLButtonElement;
@@ -230,7 +229,7 @@ const studentSummarySystemInstruction = `Sen, BDT alanında uzman bir eğitim s�
 Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı ve başka hiçbir metin, açıklama veya kod bloğu içermemelidir. Analizini aşağıdaki başlıklara göre yapılandır:
 1.  **overallPerformanceSummary:** Öğrencinin genel yetkinliği, yaklaşımı ve zaman içindeki gelişimi hakkında kısa bir yönetici özeti.
 2.  **recurringStrengths:** Öğrencinin simülasyonlar boyunca tutarlı bir şekilde sergilediği güçlü yönler ve beceriler. Maddeler halinde listele.
-3.  **patternsForImprovement:** Öğrencinin tekrar eden zorlukları, geliştirmesi gereken beceriler veya kaçındığı müdahaleler veya eğilimler. Maddeler halinde listele.
+3.  **patternsForImprovement:** Öğrencinin tekrar eden zorlukları, geliştirmesi gereken beceriler veya kaçındığı müdahale veya eğilimler. Maddeler halinde listele.
 4.  **suggestedFocusAreas:** Gelecek simülasyonlar için odaklanması önerilen belirli 2-3 alan. Maddeler halinde listele.`;
 
 // --- Core App Logic ---
@@ -253,7 +252,7 @@ const scenarios: Scenario[] = [
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
-    checkSessionAndRoute();
+    initializeApp();
 });
 
 function safeJsonParse<T>(key: string, defaultValue: T): T {
@@ -267,33 +266,58 @@ function safeJsonParse<T>(key: string, defaultValue: T): T {
     }
 }
 
-async function checkSessionAndRoute() {
-    // 1. Initialize services (DB first, then AI)
+async function initializeApp() {
     isDbConnected = db.initializeFirebase();
-    
+
     const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
     if (savedApiKey) initializeAiClient(savedApiKey);
 
-    // 2. Check for an active session
-    const session = safeJsonParse(SESSION_KEY, null);
-    if (session) {
-        const { userId, userType, studentName } = session;
-        currentUserId = userId;
-        
-        if (userType === 'student') {
-            currentStudentName = studentName;
-            showScreen('studentDashboard');
-        } else if (userType === 'teacher') {
-            // If AI is not set up, force teacher to settings tab
-            if (!ai) {
-                activeTeacherTab = 'settings';
-                showNotification("Lütfen sistemi etkinleştirmek için Gemini API anahtarınızı girin.", "info");
+    db.onAuthStateChanged(async (user: any) => {
+        if (user) {
+            // User is signed in.
+            const userProfile = await db.getData('users', user.uid);
+            // This is a temporary check for teacher login which doesn't have a user profile
+            if (user.email === 'teacher@admin.com') { 
+                currentUserId = 'teacher';
+                 if (!ai) {
+                    activeTeacherTab = 'settings';
+                    showNotification("Lütfen sistemi etkinleştirmek için Gemini API anahtarınızı girin.", "info");
+                }
+                showScreen('teacherDashboard');
+            } else if (userProfile && userProfile.approved) {
+                currentUserId = user.uid;
+                currentStudentName = user.email; // Use email for display name
+                showScreen('studentDashboard');
+            } else if (userProfile && !userProfile.approved) {
+                // User is registered but not approved
+                showScreen('login');
+                loginError.textContent = "Hesabınız henüz öğretmen tarafından onaylanmadı.";
+                loginError.classList.remove('hidden');
+                await db.signOut();
+            } else {
+                 // This case might happen if user is in Auth but not in DB.
+                 showScreen('login');
+                 loginError.textContent = "Kullanıcı profili bulunamadı. Lütfen tekrar kayıt olun.";
+                 loginError.classList.remove('hidden');
+                 await db.signOut();
             }
-            showScreen('teacherDashboard');
+        } else {
+            // User is signed out.
+            const teacherSession = safeJsonParse('teacher_session', null);
+            if (teacherSession) {
+                 currentUserId = 'teacher';
+                 if (!ai) {
+                    activeTeacherTab = 'settings';
+                    showNotification("Lütfen sistemi etkinleştirmek için Gemini API anahtarınızı girin.", "info");
+                }
+                showScreen('teacherDashboard');
+            } else {
+                currentUserId = '';
+                currentStudentName = '';
+                showScreen('welcome');
+            }
         }
-    } else {
-        showScreen('welcome');
-    }
+    });
 }
 
 
@@ -411,7 +435,7 @@ function setupEventListeners() {
         const reviewUploadButton = target.closest<HTMLButtonElement>('.review-upload-button');
         const replyQuestionButton = target.closest<HTMLButtonElement>('.reply-question-button');
 
-        if (approveButton) await handleApproveRequest(approveButton.dataset.username!);
+        if (approveButton) await handleApproveRequest(approveButton.dataset.uid!);
         if (viewSessionsButton) await showStudentSessionReviewList(viewSessionsButton.dataset.studentid!);
         if (reviewSessionButton) await showSessionDetailReview(reviewSessionButton.dataset.studentid!, reviewSessionButton.dataset.sessionid!);
         if (reviewUploadButton) await showUploadReviewDetail(reviewUploadButton.dataset.uploadid!);
@@ -435,17 +459,33 @@ function toggleLoginViews(view: 'login' | 'register' | 'teacher') {
     if (view === 'teacher') teacherLoginView.classList.remove('hidden');
 }
 
+function getFirebaseAuthErrorMessage(error: any): string {
+    switch (error.code) {
+        case 'auth/invalid-email':
+            return 'Geçersiz e-posta adresi formatı.';
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+            return 'Geçersiz e-posta veya şifre.';
+        case 'auth/email-already-in-use':
+            return 'Bu e-posta adresi zaten kayıtlı.';
+        case 'auth/weak-password':
+            return 'Şifre çok zayıf. En az 6 karakter olmalı.';
+        default:
+            return 'Bir kimlik doğrulama hatası oluştu. Lütfen tekrar deneyin.';
+    }
+}
+
 async function handleLogin() {
-    const username = usernameInput.value.trim().toLowerCase();
+    const email = emailInput.value.trim();
     const password = passwordInput.value.trim();
     loginError.classList.add('hidden');
 
     if (!isDbConnected) {
-        showNotification("Veritabanı bağlantısı kurulamadı. Lütfen daha sonra tekrar deneyin.", "error");
+        showNotification("Veritabanı bağlantısı kurulamadı.", "error");
         return;
     }
-    if (!username || !password) {
-        loginError.textContent = "Kullanıcı adı ve şifre gereklidir.";
+    if (!email || !password) {
+        loginError.textContent = "E-posta ve şifre gereklidir.";
         loginError.classList.remove('hidden');
         return;
     }
@@ -454,25 +494,11 @@ async function handleLogin() {
     loginButton.textContent = 'Giriş Yapılıyor...';
 
     try {
-        const user = await db.getData('users', username);
-
-        if (user && user.password === password) {
-            if (user.approved) {
-                currentUserId = user.username;
-                currentStudentName = user.username;
-                localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.username, studentName: user.username, userType: 'student' }));
-                await checkSessionAndRoute();
-            } else {
-                loginError.textContent = "Hesabınız henüz öğretmen tarafından onaylanmadı.";
-                loginError.classList.remove('hidden');
-            }
-        } else {
-            loginError.textContent = "Geçersiz kullanıcı adı veya şifre.";
-            loginError.classList.remove('hidden');
-        }
+        await db.signInWithEmail(email, password);
+        // onAuthStateChanged will handle routing
     } catch (error) {
         console.error("Login failed:", error);
-        loginError.textContent = "Giriş sırasında bir hata oluştu. Lütfen tekrar deneyin.";
+        loginError.textContent = getFirebaseAuthErrorMessage(error);
         loginError.classList.remove('hidden');
     } finally {
         loginButton.disabled = false;
@@ -481,17 +507,17 @@ async function handleLogin() {
 }
 
 async function handleRegister() {
-    const username = registerUsernameInput.value.trim().toLowerCase();
+    const email = registerEmailInput.value.trim();
     const password = registerPasswordInput.value.trim();
     const confirmPassword = registerConfirmPasswordInput.value.trim();
     registerError.classList.add('hidden');
     registerSuccess.classList.add('hidden');
 
     if (!isDbConnected) {
-        showNotification("Veritabanı bağlantısı kurulamadı. Lütfen daha sonra tekrar deneyin.", "error");
+        showNotification("Veritabanı bağlantısı kurulamadı.", "error");
         return;
     }
-    if (!username || !password || !confirmPassword) {
+    if (!email || !password || !confirmPassword) {
         registerError.textContent = "Tüm alanlar zorunludur.";
         registerError.classList.remove('hidden');
         return;
@@ -506,25 +532,26 @@ async function handleRegister() {
     registerButton.textContent = 'Kayıt Yapılıyor...';
     
     try {
-        const existingUser = await db.getData('users', username);
-        if (existingUser) {
-            registerError.textContent = "Bu kullanıcı adı zaten alınmış.";
-            registerError.classList.remove('hidden');
-            return;
-        }
+        const userCredential = await db.signUpWithEmail(email, password);
+        const user = userCredential.user;
 
-        const newUser = { username, password, approved: false };
-        await db.setData('users', username, newUser);
+        // Create a user profile in Firestore
+        const newUserProfile = { 
+            email: user.email, 
+            approved: false,
+            createdAt: new Date().toISOString()
+        };
+        await db.setData('users', user.uid, newUserProfile);
 
         registerSuccess.textContent = "Kayıt başarılı! Hesabınız öğretmen tarafından onaylandıktan sonra giriş yapabilirsiniz.";
         registerSuccess.classList.remove('hidden');
-        registerUsernameInput.value = '';
+        registerEmailInput.value = '';
         registerPasswordInput.value = '';
         registerConfirmPasswordInput.value = '';
 
     } catch (error) {
         console.error("Registration failed:", error);
-        registerError.textContent = "Kayıt sırasında bir hata oluştu. Lütfen tekrar deneyin.";
+        registerError.textContent = getFirebaseAuthErrorMessage(error);
         registerError.classList.remove('hidden');
     } finally {
         registerButton.disabled = false;
@@ -537,20 +564,28 @@ async function handleTeacherLogin() {
     teacherLoginError.classList.add('hidden');
 
     if (password === TEACHER_PASSWORD) {
+        // We use a simple local storage flag for teacher session persistence
+        // as they don't have a real account in Firebase Auth.
+        localStorage.setItem('teacher_session', JSON.stringify({ active: true }));
         currentUserId = 'teacher';
-        localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: 'teacher', userType: 'teacher' }));
-        await checkSessionAndRoute();
+        showScreen('teacherDashboard');
     } else {
         teacherLoginError.textContent = "Geçersiz yönetici şifresi.";
         teacherLoginError.classList.remove('hidden');
     }
 }
 
-function logout() {
-    localStorage.removeItem(SESSION_KEY);
+async function logout() {
+    const isTeacher = currentUserId === 'teacher';
+    if (isTeacher) {
+        localStorage.removeItem('teacher_session');
+    } else {
+        await db.signOut();
+    }
+    
     currentUserId = '';
     currentStudentName = '';
-    // Do not clear API or DB keys on logout, just the session
+    // onAuthStateChanged or a reload will handle routing to welcome screen
     window.location.reload();
 }
 
@@ -1063,6 +1098,7 @@ async function handleSendAnalysisToTeacher() {
     const uploadData = {
         id: uploadId,
         studentId: currentUserId,
+        studentEmail: currentStudentName,
         ...currentAnalysisCache,
         timestamp: new Date().toISOString(),
         feedback: null
@@ -1089,6 +1125,7 @@ async function handleStudentQuestion() {
     const qaData = {
         id: qaId,
         studentId: currentUserId,
+        studentEmail: currentStudentName,
         question: question,
         answer: null,
         timestamp: new Date().toISOString()
@@ -1236,19 +1273,22 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
 
 // --- Teacher Specific Functions ---
 
-async function handleApproveRequest(usernameToApprove: string) {
-    if (usernameToApprove) {
-        // Approve the user in the 'users' collection
-        await db.updateData('users', usernameToApprove, { approved: true });
+async function handleApproveRequest(uidToApprove: string) {
+    if (uidToApprove) {
+        await db.updateData('users', uidToApprove, { approved: true });
         
         // Create the corresponding main document in the 'students' collection
-        // This ensures subcollections like 'sessions' can be added later.
-        await db.setData('students', usernameToApprove, {
-             username: usernameToApprove,
-             joinedAt: new Date().toISOString()
-        });
-
-        showNotification(`'${usernameToApprove}' adlı öğrenci onaylandı.`, 'success');
+        // using the UID as the document ID.
+        const userProfile = await db.getData('users', uidToApprove);
+        if (userProfile) {
+            await db.setData('students', uidToApprove, {
+                email: userProfile.email,
+                joinedAt: new Date().toISOString()
+            });
+            showNotification(`'${userProfile.email}' adlı öğrenci onaylandı.`, 'success');
+        } else {
+             showNotification(`Onaylanacak kullanıcı profili bulunamadı.`, 'error');
+        }
         await renderRegistrationRequests();
     }
 }
@@ -1268,8 +1308,8 @@ async function renderRegistrationRequests() {
         const requestElement = document.createElement('div');
         requestElement.className = 'flex items-center justify-between bg-white p-4 rounded-lg shadow-sm';
         requestElement.innerHTML = `
-            <div><p class="font-semibold text-gray-800">${user.username}</p><p class="text-sm text-gray-500">Onay bekliyor</p></div>
-            <button data-username="${user.username}" class="approve-button flex items-center justify-center rounded-lg h-10 px-4 bg-green-500 text-white font-semibold hover:bg-green-600 transition-all duration-300 shadow-sm hover:shadow-md">
+            <div><p class="font-semibold text-gray-800">${user.email}</p><p class="text-sm text-gray-500">Onay bekliyor</p></div>
+            <button data-uid="${user.id}" class="approve-button flex items-center justify-center rounded-lg h-10 px-4 bg-green-500 text-white font-semibold hover:bg-green-600 transition-all duration-300 shadow-sm hover:shadow-md">
                 <span class="material-symbols-outlined mr-2">check_circle</span><span>Onayla</span>
             </button>
         `;
@@ -1330,8 +1370,8 @@ async function renderStudentSimulationsList() {
     students.forEach(student => {
         studentList.innerHTML += `
             <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
-                <p class="font-semibold text-gray-800">${student.username}</p>
-                <button data-studentid="${student.username}" class="view-sessions-button flex items-center justify-center rounded-lg h-10 px-4 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all">
+                <p class="font-semibold text-gray-800">${student.email}</p>
+                <button data-studentid="${student.id}" class="view-sessions-button flex items-center justify-center rounded-lg h-10 px-4 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all">
                     <span>Seansları Görüntüle</span><span class="material-symbols-outlined ml-2">arrow_forward</span>
                 </button>
             </div>`;
@@ -1344,7 +1384,10 @@ async function showStudentSessionReviewList(studentId: string) {
     showScreen('teacherReview');
     teacherReview.listView.classList.remove('hidden');
     teacherReview.detailView.classList.add('hidden');
-    teacherReview.listStudentName.textContent = studentId;
+
+    const studentProfile = await db.getData('users', studentId);
+    teacherReview.listStudentName.textContent = studentProfile?.email || studentId;
+
     const sessions = await getAllSessionsForStudent(studentId);
     teacherReview.sessionListContainer.innerHTML = '';
     if (sessions.length === 0) {
@@ -1372,10 +1415,12 @@ async function showSessionDetailReview(studentId: string, sessionId: string) {
     const sessions = await getAllSessionsForStudent(studentId);
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
+    
+    const studentProfile = await db.getData('users', studentId);
 
     teacherReview.listView.classList.add('hidden');
     teacherReview.detailView.classList.remove('hidden');
-    teacherReview.studentName.textContent = studentId;
+    teacherReview.studentName.textContent = studentProfile?.email || studentId;
     teacherReview.problemDisplay.textContent = session.scenario.title;
     teacherReview.chatContainer.innerHTML = '';
 
@@ -1434,7 +1479,7 @@ async function renderUploadedAnalysesList() {
         container.innerHTML += `
             <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
                 <div>
-                    <p class="font-semibold text-gray-800">Öğrenci: ${upload.studentId}</p>
+                    <p class="font-semibold text-gray-800">Öğrenci: ${upload.studentEmail || upload.studentId}</p>
                     <p class="text-sm text-gray-500">${new Date(upload.timestamp).toLocaleString('tr-TR')}</p>
                 </div>
                 <button data-uploadid="${upload.id}" class="review-upload-button flex items-center justify-center rounded-lg h-10 px-4 bg-teal-500 text-white font-semibold hover:bg-teal-600">
@@ -1450,7 +1495,7 @@ async function showUploadReviewDetail(uploadId: string) {
     if (!upload) return;
 
     showScreen('teacherUploadReview');
-    teacherUploadReview.studentName.textContent = upload.studentId;
+    teacherUploadReview.studentName.textContent = upload.studentEmail || upload.studentId;
     teacherUploadReview.transcript.textContent = upload.transcript;
     renderAnalysisOutput(upload.analysis, teacherUploadReview.analysis);
 
@@ -1490,7 +1535,7 @@ async function renderStudentQuestions() {
         container.innerHTML += `
             <div class="bg-white p-4 rounded-lg shadow-sm">
                 <div class="flex justify-between items-start">
-                    <p class="text-sm text-gray-500">Öğrenci: <span class="font-bold text-gray-700">${qa.studentId}</span></p>
+                    <p class="text-sm text-gray-500">Öğrenci: <span class="font-bold text-gray-700">${qa.studentEmail || qa.studentId}</span></p>
                     <p class="text-xs text-gray-400">${new Date(qa.timestamp).toLocaleString('tr-TR')}</p>
                 </div>
                 <p class="mt-2 p-3 bg-gray-50 rounded-md">${qa.question}</p>
