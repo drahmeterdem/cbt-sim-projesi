@@ -3,6 +3,7 @@
 declare const firebase: any;
 
 let db: any = null;
+let auth: any = null;
 
 // Hardcoded Firebase configuration to automate database connection
 const firebaseConfig = {
@@ -32,14 +33,59 @@ export function initializeFirebase(): boolean {
             firebase.initializeApp(firebaseConfig);
         }
         db = firebase.firestore();
-        console.log("Firebase and Firestore initialized successfully.");
+        auth = firebase.auth();
+        console.log("Firebase, Firestore, and Auth initialized successfully.");
         return true;
     } catch (error) {
         console.error("Firebase initialization failed:", error);
         db = null;
+        auth = null;
         return false;
     }
 }
+
+// --- Auth Functions ---
+
+/**
+ * Listens for changes in the user's authentication state.
+ * @param callback - A function to call with the user object (or null) when the state changes.
+ * @returns The unsubscribe function.
+ */
+export function onAuthStateChanged(callback: (user: any) => void): () => void {
+    if (!auth) throw new Error("Auth not initialized.");
+    return auth.onAuthStateChanged(callback);
+}
+
+/**
+ * Signs up a new user with email and password.
+ * @param email - The user's email.
+ * @param password - The user's password.
+ * @returns The user credential object.
+ */
+export async function signUpWithEmail(email: string, password: string): Promise<any> {
+    if (!auth) throw new Error("Auth not initialized.");
+    return await auth.createUserWithEmailAndPassword(email, password);
+}
+
+/**
+ * Signs in a user with email and password.
+ * @param email - The user's email.
+ * @param password - The user's password.
+ * @returns The user credential object.
+ */
+export async function signInWithEmail(email: string, password: string): Promise<any> {
+    if (!auth) throw new Error("Auth not initialized.");
+    return await auth.signInWithEmailAndPassword(email, password);
+}
+
+/**
+ * Signs out the current user.
+ */
+export async function signOut(): Promise<void> {
+    if (!auth) throw new Error("Auth not initialized.");
+    await auth.signOut();
+}
+
 
 // --- Generic Data Access Functions ---
 
