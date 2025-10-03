@@ -125,7 +125,7 @@
 <div id="login-screen" class="screen hidden items-center justify-center">
     <div class="w-full max-w-md mx-auto bg-white/50 backdrop-blur-lg p-10 rounded-2xl shadow-xl">
         <div id="login-view">
-            <h2 class="text-gray-900 tracking-tight text-3xl font-bold text-center">Öğrenci Girişi</h2>
+            <h2 class="text-gray-900 tracking-tight text-3xl font-bold text-center">Giriş Yap</h2>
             <p class="text-center text-gray-600 mt-2">Lütfen bilgilerinizi girin.</p>
             <div id="login-error" class="hidden text-red-600 bg-red-100 p-3 rounded-lg mt-4 text-sm"></div>
             <div class="mt-6 space-y-4">
@@ -141,9 +141,8 @@
                     <span>Giriş Yap</span>
                 </button>
             </div>
-            <div class="mt-6 text-center text-sm text-gray-600 space-x-4">
-                <a href="#" id="show-register-view" class="font-semibold text-[var(--primary-color)] hover:underline">Hesap Oluştur</a>
-                <a href="#" id="show-teacher-login-view" class="font-semibold text-amber-600 hover:underline">Öğretmen Girişi Yap</a>
+            <div class="mt-6 text-center text-sm text-gray-600">
+                <p>Hesabınız yok mu? <a href="#" id="show-register-view" class="font-semibold text-[var(--primary-color)] hover:underline">Yeni Hesap Oluşturun</a></p>
             </div>
         </div>
         <div id="register-view" class="hidden">
@@ -171,25 +170,9 @@
                 Zaten bir hesabın var mı? <a href="#" id="show-login-view" class="font-semibold text-[var(--primary-color)] hover:underline">Giriş Yap</a>
             </p>
         </div>
-        <div id="teacher-login-view" class="hidden">
-            <h2 class="text-gray-900 tracking-tight text-3xl font-bold text-center">Öğretmen Girişi</h2>
-            <p class="text-center text-gray-600 mt-2">Lütfen yönetici şifresini girin.</p>
-            <div id="teacher-login-error" class="hidden text-red-600 bg-red-100 p-3 rounded-lg mt-4 text-sm"></div>
-            <div class="mt-6 space-y-4">
-                 <div>
-                    <label for="teacher-password-input" class="block text-sm font-medium text-gray-700">Yönetici Şifresi</label>
-                    <input type="password" id="teacher-password-input" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-lg p-3 transition-shadow">
-                </div>
-                <button id="teacher-login-button" class="w-full flex items-center justify-center rounded-lg h-14 px-8 bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-all duration-300 text-lg shadow-lg hover:shadow-amber-300">
-                    <span>Giriş Yap</span>
-                </button>
-            </div>
-             <p class="text-center text-sm text-gray-600 mt-6">
-                <a href="#" id="show-student-login-view" class="font-semibold text-amber-600 hover:underline">Öğrenci Girişine Dön</a>
-            </p>
-        </div>
     </div>
 </div>
+
 
 <!-- Student Dashboard Screen -->
 <div id="student-dashboard-screen" class="screen hidden">
