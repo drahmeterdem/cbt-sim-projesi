@@ -9,6 +9,7 @@
 <title>Dr. Ahmet Erdem | BDT Süpervizyon</title>
 <link href="data:image/x-icon;base64," rel="icon" type="image/x-icon"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <style type="text/tailwindcss">
         :root {
             --primary-color: #0f766e; /* Teal-700 */
@@ -120,7 +121,7 @@
 
         <button id="save-progress-button" class="hidden flex items-center justify-center rounded-lg h-9 px-4 text-sm bg-[var(--primary-color)] text-white font-medium hover:bg-teal-800 transition-all shadow-sm">
             <span class="material-symbols-outlined text-lg mr-1.5">save</span>
-            <span>Kaydet</span>
+            <span>Kaydet & Çık</span>
         </button>
 
         <button id="logout-button" class="hidden flex items-center justify-center rounded-lg h-9 w-9 bg-red-50 text-red-600 hover:bg-red-100 transition-all border border-red-100" title="Çıkış Yap">
@@ -328,9 +329,9 @@
                         </div>
                         <span class="material-symbols-outlined text-4xl text-teal-600 mb-3 bg-teal-50 p-2 rounded-lg">description</span>
                         <h3 class="text-lg font-bold text-gray-800">Belge Yükle & Analiz</h3>
-                        <p class="text-gray-500 text-sm mt-2 mb-4">Gerçekleştirdiğiniz seansların transkriptlerini veya dökümanlarını yükleyerek yapay zeka analizi alın ve öğretmeninize iletin.</p>
+                        <p class="text-gray-500 text-sm mt-2 mb-4">Seans transkriptlerini (Word/Metin) yükleyerek yapay zeka analizi alın ve öğretmeninize iletin.</p>
                         <button id="go-to-analysis-button" class="w-full flex items-center justify-center rounded-lg h-10 bg-teal-50 text-teal-700 font-semibold hover:bg-teal-100 border border-teal-200 transition-all">
-                            <span>Transkript Yükle</span>
+                            <span>Belge Yükle</span>
                         </button>
                     </div>
                 </div>
@@ -419,13 +420,35 @@
              </div>
             
             <div class="p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div class="flex flex-col h-full">
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">1. Döküman Metni / Transkript</label>
-                    <div class="relative flex-grow">
-                        <textarea id="transcript-input" class="w-full h-96 p-4 rounded-xl border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-sm leading-relaxed bg-gray-50 resize-none font-mono" placeholder="Terapist: Merhaba, hoş geldiniz. Bugün sizi buraya getiren nedir?&#x0a;Danışan: ..."></textarea>
-                        <div class="absolute bottom-4 right-4 text-xs text-gray-400 pointer-events-none">Metin formatı</div>
+                <div class="flex flex-col h-full space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Danışan Rumuzu/Adı</label>
+                            <input type="text" id="analysis-client-name" class="w-full rounded-lg border-gray-300 focus:ring-teal-500 focus:border-teal-500 text-sm" placeholder="Örn: Ayşe K.">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Oturum Numarası</label>
+                            <input type="number" id="analysis-session-number" class="w-full rounded-lg border-gray-300 focus:ring-teal-500 focus:border-teal-500 text-sm" placeholder="Örn: 4">
+                        </div>
                     </div>
-                    <button id="analyze-transcript-button" class="mt-4 w-full flex items-center justify-center rounded-xl h-12 px-6 bg-teal-600 text-white font-bold hover:bg-teal-700 transition-all shadow-md hover:shadow-lg">
+
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Döküman Yükle (.docx) veya Metin Yapıştır</label>
+                        <div class="flex items-center justify-center w-full mb-2">
+                            <label for="file-upload" class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                                <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <span class="material-symbols-outlined text-gray-400 text-3xl mb-2">upload_file</span>
+                                    <p class="text-sm text-gray-500"><span class="font-semibold">Word Dosyası Yükle</span> (.docx)</p>
+                                </div>
+                                <input id="file-upload" type="file" accept=".docx" class="hidden" />
+                            </label>
+                        </div>
+                        <div class="relative flex-grow">
+                            <textarea id="transcript-input" class="w-full h-64 p-4 rounded-xl border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-sm leading-relaxed bg-gray-50 resize-none font-mono" placeholder="Veya metni buraya yapıştırın...&#x0a;Terapist: Merhaba...&#x0a;Danışan: ..."></textarea>
+                        </div>
+                    </div>
+                    
+                    <button id="analyze-transcript-button" class="w-full flex items-center justify-center rounded-xl h-12 px-6 bg-teal-600 text-white font-bold hover:bg-teal-700 transition-all shadow-md hover:shadow-lg">
                         <span class="material-symbols-outlined mr-2">analytics</span>
                         <span>Yapay Zeka Analizini Başlat</span>
                     </button>
@@ -549,7 +572,7 @@
                     <span class="material-symbols-outlined text-gray-500">person_add</span> Kayıt İstekleri
                 </button>
                 <button data-tab="simulations" class="teacher-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors hover:bg-white hover:shadow-sm">
-                    <span class="material-symbols-outlined text-gray-500">visibility</span> Öğrenci İzleme
+                    <span class="material-symbols-outlined text-gray-500">visibility</span> Öğrenci Profilleri
                 </button>
                 <button data-tab="uploads" class="teacher-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors hover:bg-white hover:shadow-sm">
                     <span class="material-symbols-outlined text-gray-500">file_present</span> Belge Kontrolü
@@ -594,52 +617,78 @@
         </div>
     </div>
 
-    <!-- Teacher Reviews (Kept mostly same structure, cleaner styling implied by Tailwind reset) -->
-    <div id="teacher-review-screen" class="screen hidden px-4 py-6 max-w-6xl mx-auto">
-        <!-- Review List View -->
-        <div id="teacher-review-list-view" class="w-full bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-             <div class="flex items-center gap-4 mb-6">
-                <button id="back-to-teacher-dashboard-button" class="p-2 hover:bg-gray-100 rounded-full transition-colors"><span class="material-symbols-outlined">arrow_back</span></button>
-                <h2 class="text-2xl font-bold text-gray-800"><span id="review-list-student-name" class="text-teal-600"></span> - Simülasyon Geçmişi</h2>
-            </div>
-            <div id="review-session-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    <!-- Teacher Reviews (Refactored to Full Student Profile) -->
+    <div id="teacher-review-screen" class="screen hidden px-4 py-6 max-w-7xl mx-auto">
+        <!-- Profile List View (Used when selecting a student to view detail) -->
+        <div id="teacher-review-list-view" class="hidden w-full bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+            <!-- Content populated dynamically -->
         </div>
 
-        <!-- Review Detail View -->
-        <div id="teacher-review-detail-view" class="hidden w-full h-[80vh] flex flex-col bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
-             <div class="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-                <div class="flex items-center gap-3">
-                    <button id="back-to-session-list-button" class="text-gray-500 hover:text-gray-800"><span class="material-symbols-outlined">arrow_back</span></button>
+        <!-- Student Detail Profile View -->
+        <div id="teacher-review-detail-view" class="w-full flex flex-col h-[85vh] bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+            
+            <!-- Profile Header -->
+             <div class="p-6 border-b border-gray-200 bg-slate-50 flex justify-between items-center">
+                <div class="flex items-center gap-4">
+                    <button id="back-to-teacher-dashboard-button" class="bg-white border border-gray-300 p-2 rounded-lg hover:bg-gray-100 transition-colors shadow-sm"><span class="material-symbols-outlined text-gray-600">arrow_back</span></button>
                     <div>
-                        <h3 class="font-bold text-gray-800" id="review-problem-display"></h3>
-                        <p class="text-xs text-gray-500">Öğrenci: <span id="review-student-name"></span></p>
+                         <h2 class="text-2xl font-bold text-gray-800" id="review-student-name"></h2>
+                         <p class="text-sm text-gray-500 flex items-center gap-1"><span class="material-symbols-outlined text-sm">email</span> <span id="review-student-email"></span></p>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <div class="text-center px-4 py-2 bg-white rounded-lg border border-gray-200">
+                        <span class="block text-xl font-bold text-teal-600" id="stat-completed-sessions">0</span>
+                        <span class="text-xs text-gray-400 uppercase">Tamamlanan</span>
+                    </div>
+                    <div class="text-center px-4 py-2 bg-white rounded-lg border border-gray-200">
+                         <span class="block text-xl font-bold text-amber-600" id="stat-incomplete-sessions">0</span>
+                         <span class="text-xs text-gray-400 uppercase">Yarım Kalan</span>
                     </div>
                 </div>
             </div>
-            <div class="flex-1 flex overflow-hidden">
-                <div class="flex-1 overflow-y-auto p-6 bg-slate-50" id="review-chat-container"></div>
-                <div class="w-80 border-l border-gray-200 bg-white p-4 overflow-y-auto flex flex-col gap-4">
-                    <div id="review-charts-container" class="p-4 bg-gray-50 rounded-xl"></div>
-                    <div class="border-t border-gray-100 pt-4">
-                         <h4 class="font-bold text-sm text-gray-800 mb-2">Süpervizör Notu</h4>
-                         <div id="existing-feedback-display" class="text-sm text-gray-600 mb-2 italic"></div>
-                         <textarea id="feedback-input" class="w-full text-sm border-gray-300 rounded-lg mb-2" rows="4" placeholder="Geri bildirim yazın..."></textarea>
-                         <button id="submit-feedback-button" class="w-full bg-amber-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-amber-700">Gönder</button>
-                    </div>
+
+            <!-- Tabs -->
+            <div class="flex border-b border-gray-200 px-6 bg-white">
+                <button class="profile-tab px-4 py-3 text-sm font-medium border-b-2 border-teal-600 text-teal-700" data-target="profile-simulations">Simülasyonlar</button>
+                <button class="profile-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-target="profile-uploads">Yüklenen Belgeler</button>
+                <button class="profile-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-target="profile-questions">Sorular & Cevaplar</button>
+            </div>
+
+            <!-- Content Area -->
+            <div class="flex-1 overflow-y-auto p-6 bg-gray-50">
+                
+                <!-- 1. Simulations Tab -->
+                <div id="profile-simulations" class="profile-content space-y-4">
+                     <!-- Sim List injected here -->
                 </div>
+
+                <!-- 2. Uploads Tab -->
+                <div id="profile-uploads" class="profile-content hidden space-y-4">
+                     <!-- Uploads List injected here -->
+                </div>
+
+                 <!-- 3. Questions Tab -->
+                <div id="profile-questions" class="profile-content hidden space-y-4">
+                     <!-- QA List injected here -->
+                </div>
+
             </div>
         </div>
     </div>
 
-    <!-- Upload Review Screen -->
+    <!-- Upload Review Screen (Kept separate for detailed text analysis) -->
     <div id="teacher-upload-review-screen" class="screen hidden px-4 py-6 max-w-6xl mx-auto">
          <div class="flex items-center gap-4 mb-6">
-            <button id="back-to-dashboard-from-upload-review" class="bg-white border border-gray-300 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-gray-50">Panele Dön</button>
+            <button id="back-to-dashboard-from-upload-review" class="bg-white border border-gray-300 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-gray-50">Geri Dön</button>
             <h2 class="text-2xl font-bold">Döküman İnceleme: <span id="upload-review-student-name" class="text-teal-600"></span></h2>
          </div>
          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[75vh]">
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                <div class="p-3 bg-gray-50 border-b border-gray-200 font-semibold text-gray-700">Öğrenci Yüklemesi</div>
+                <div class="p-3 bg-gray-50 border-b border-gray-200 font-semibold text-gray-700 flex justify-between">
+                    <span>Öğrenci Yüklemesi</span>
+                    <span id="upload-meta-display" class="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded"></span>
+                </div>
                 <div id="upload-review-transcript" class="flex-1 p-6 overflow-y-auto prose prose-sm max-w-none"></div>
             </div>
             <div class="flex flex-col gap-6 h-full">
