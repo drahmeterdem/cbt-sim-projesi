@@ -2,6 +2,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import * as db from './firebase';
 
+// Declare Mammoth for TypeScript
+declare const mammoth: any;
+
 // --- Type Definitions ---
 interface Scenario {
     id: string;
@@ -33,7 +36,7 @@ let reviewingSessionId: string = '';
 let reviewingUploadId: string = '';
 let currentScreen: keyof typeof screens | null = null;
 let activeTeacherTab: string = 'requests'; // Default to requests for teacher workflow
-let currentAnalysisCache: { transcript: string; analysis: any } | null = null;
+let currentAnalysisCache: { transcript: string; analysis: any; clientName?: string; sessionNumber?: string } | null = null;
 
 // --- DOM Element References ---
 const screens = {
@@ -128,6 +131,9 @@ const analysis = {
     output: document.getElementById('analysis-output')!,
     sendButton: document.getElementById('send-to-teacher-button')!,
     backButton: document.getElementById('back-to-dashboard-from-analysis')!,
+    fileInput: document.getElementById('file-upload') as HTMLInputElement,
+    clientNameInput: document.getElementById('analysis-client-name') as HTMLInputElement,
+    sessionNumInput: document.getElementById('analysis-session-number') as HTMLInputElement
 };
 
 // Teacher Dashboard
@@ -148,23 +154,20 @@ const teacherDashboard = {
 const requestsListContainer = document.getElementById('requests-list-container')!;
 
 
-// Teacher Review Screen
+// Teacher Review Screen (Now Profile Screen)
 const teacherReview = {
     screen: document.getElementById('teacher-review-screen')!,
-    listView: document.getElementById('teacher-review-list-view')!,
-    detailView: document.getElementById('teacher-review-detail-view')!,
-    listStudentName: document.getElementById('review-list-student-name')!,
-    sessionListContainer: document.getElementById('review-session-list-container')!,
     backToDashboardButton: document.getElementById('back-to-teacher-dashboard-button')!,
-    backToSessionListButton: document.getElementById('back-to-session-list-button')!,
     studentName: document.getElementById('review-student-name')!,
-    problemDisplay: document.getElementById('review-problem-display')!,
-    chatContainer: document.getElementById('review-chat-container')!,
-    chartsContainer: document.getElementById('review-charts-container')!,
-    feedbackForm: document.getElementById('review-feedback-form')!,
-    existingFeedback: document.getElementById('existing-feedback-display')!,
-    feedbackInput: document.getElementById('feedback-input') as HTMLInputElement,
-    submitFeedbackButton: document.getElementById('submit-feedback-button')!,
+    studentEmail: document.getElementById('review-student-email')!,
+    statCompleted: document.getElementById('stat-completed-sessions')!,
+    statIncomplete: document.getElementById('stat-incomplete-sessions')!,
+    tabs: document.querySelectorAll('.profile-tab'),
+    contents: {
+        simulations: document.getElementById('profile-simulations')!,
+        uploads: document.getElementById('profile-uploads')!,
+        questions: document.getElementById('profile-questions')!
+    }
 };
 
 const teacherUploadReview = {
@@ -177,6 +180,7 @@ const teacherUploadReview = {
     existingFeedback: document.getElementById('existing-upload-feedback-display')!,
     feedbackInput: document.getElementById('upload-feedback-input') as HTMLTextAreaElement,
     submitButton: document.getElementById('submit-upload-feedback-button')!,
+    metaDisplay: document.getElementById('upload-meta-display')!,
 }
 
 
@@ -224,13 +228,6 @@ Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı v
 3.  **areasForImprovement:** Terapistin geliştirebileceği alanlar (örn: daha açık uçlu sorular sorma, Sokratik sorgulamayı derinleştirme, danışanın otomatik düşüncelerini daha net belirleme). Maddeler halinde listele.
 4.  **keyMomentsAnalysis:** Transkriptteki 2-3 kritik anı belirle. Bu anlarda terapistin müdahalesini, bu müdahalesinin potansiyel etkilerini ve alternatif yaklaşımları analiz et.`;
 
-const studentSummarySystemInstruction = `Sen, BDT alanında uzman bir eğitim süpervizörüsün. Sana bir öğrencinin birden fazla simülasyon seansındaki konuşma kayıtları verilecek. Görevin, bu kayıtlara dayanarak öğrencinin genel performansı hakkında kapsamlı bir özet ve yapıcı geri bildirim oluşturmaktır.
-
-Tüm çıktın, sağlanan şemaya uygun, geçerli bir JSON formatında olmalı ve başka hiçbir metin, açıklama veya kod bloğu içermemelidir. Analizini aşağıdaki başlıklara göre yapılandır:
-1.  **overallPerformanceSummary:** Öğrencinin genel yetkinliği, yaklaşımı ve zaman içindeki gelişimi hakkında kısa bir yönetici özeti.
-2.  **recurringStrengths:** Öğrencinin simülasyonlar boyunca tutarlı bir şekilde sergilediği güçlü yönler ve beceriler. Maddeler halinde listele.
-3.  **patternsForImprovement:** Öğrencinin tekrar eden zorlukları, geliştirmesi gereken beceriler veya kaçındığı müdahale veya eğilimler. Maddeler halinde listele.
-4.  **suggestedFocusAreas:** Gelecek simülasyonlar için odaklanması önerilen belirli 2-3 alan. Maddeler halinde listele.`;
 
 // --- Core App Logic ---
 
@@ -246,7 +243,7 @@ const scenarios: Scenario[] = [
     { id: '4', title: 'Mükemmeliyetçilik', description: 'yaptığı işlerde asla yeterince iyi olmadığını düşünüyor ve küçük hatalar yaptığında yoğun bir şekilde kendini eleştiriyor.', profile: 'Elif, 30 yaşında bir grafik tasarımcı. Yüksek standartlara sahip ve bu standartlara ulaşamadığında büyük bir hayal kırıklığı ve yetersizlik hissediyor. Projeleri teslim etmekte zorlanıyor çünkü sürekli daha iyi olabileceğini düşünüyor ve son dokunuşları yapmaktan kendini alamıyor.', isCustom: false },
     { id: '5', title: 'İlişki Sorunları', description: 'partneriyle sık sık küçük konularda büyük tartışmalar yaşıyor ve iletişim kurmakta zorlandıklarını hissediyor.', profile: 'Elif, 32 yaşında, bir avukat. İlişkisinde anlaşılmadığını ve partnerinin onun ihtiyaçlarına karşı duyarsız olduğunu düşünüyor. Tartışma anlarında duygularını ifade etmek yerine savunmacı bir tutum sergiliyor ve sık sık "her zaman" veya "asla" gibi genellemeler kullanıyor.', isCustom: false },
     { id: '6', title: 'Genel Kaygı Bozukluğu', description: 'günlük hayattaki birçok farklı konu (iş, sağlık, aile) hakkında sürekli ve kontrol edilemeyen bir endişe hali yaşıyor.', profile: 'Elif, 40 yaşında bir öğretmen. "Ya olursa?" diye başlayan felaket senaryoları zihninde sürekli dönüyor. Bu endişeler nedeniyle geceleri uyumakta zorlanıyor ve sürekli bir gerginlik hissediyor. En kötü olasılığa odaklanma eğiliminde.', isCustom: false },
-    { id: '7', title: 'Test Senaryo', description: 'Test', profile: 'Test profile', isCustom: true }, // Added to ensure custom section renders
+    { id: '7', title: 'Test Senaryo', description: 'Test', profile: 'Test profile', isCustom: true }, 
 ];
 
 
@@ -292,7 +289,6 @@ async function initializeApp() {
                     currentStudentName = userProfile.email; // Use email
                     showScreen('studentDashboard');
                 } else {
-                     // User is registered but not approved - Force logout or Show Pending Message
                      showScreen('login');
                      loginError.textContent = "Hesabınız Dr. Ahmet Erdem tarafından henüz onaylanmamıştır. Onay sürecini bekleyiniz.";
                      (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "Hesabınız Dr. Ahmet Erdem tarafından henüz onaylanmamıştır. Onay sürecini bekleyiniz.";
@@ -300,9 +296,6 @@ async function initializeApp() {
                      await db.signOut();
                 }
             } else {
-                 // Profile missing or error, but user exists in Auth.
-                 // This might happen if Firestore write failed during registration.
-                 // Attempt to fix it if it's the admin, otherwise logout.
                  if (user.email === 'drahmeterdem@gmail.com') {
                      // Auto-fix admin profile
                      const adminProfile = {
@@ -406,11 +399,15 @@ function setupEventListeners() {
     showRegisterView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('register'); });
     showLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('login'); });
     logoutButton.addEventListener('click', logout);
-    saveProgressButton.addEventListener('click', saveSessionProgress);
+    saveProgressButton.addEventListener('click', async () => {
+        await saveSessionProgress('in-progress');
+    });
     goToAnalysisButton.addEventListener('click', () => showScreen('sessionAnalysis'));
     analysis.analyzeButton.addEventListener('click', handleAnalyzeTranscript);
     analysis.backButton.addEventListener('click', () => showScreen('studentDashboard'));
     analysis.sendButton.addEventListener('click', handleSendAnalysisToTeacher);
+    analysis.fileInput.addEventListener('change', handleFileUpload);
+
     simulation.sendCustomResponseButton.addEventListener('click', () => {
         const text = simulation.customResponseInput.value.trim();
         if (text) {
@@ -422,6 +419,8 @@ function setupEventListeners() {
     });
     rationaleModal.closeButton.addEventListener('click', () => rationaleModal.container.classList.add('hidden'));
     summaryModal.closeButton.addEventListener('click', () => summaryModal.container.classList.add('hidden'));
+    
+    // Teacher Tabs
     teacherDashboard.tabs.forEach(tab => {
         tab.addEventListener('click', () => {
             const tabName = (tab as HTMLElement).dataset.tab!;
@@ -429,13 +428,30 @@ function setupEventListeners() {
             renderTeacherDashboard();
         });
     });
-    teacherReview.backToDashboardButton.addEventListener('click', () => showScreen('teacherDashboard'));
-    teacherReview.backToSessionListButton.addEventListener('click', () => {
-        teacherReview.detailView.classList.add('hidden');
-        teacherReview.listView.classList.remove('hidden');
+
+    // Profile Tabs
+    teacherReview.tabs.forEach(tab => {
+        tab.addEventListener('click', (e) => {
+            const targetId = (e.target as HTMLElement).dataset.target!;
+            // Switch tabs UI
+            teacherReview.tabs.forEach(t => {
+                t.classList.remove('border-teal-600', 'text-teal-700');
+                t.classList.add('border-transparent', 'text-gray-500');
+            });
+            (e.target as HTMLElement).classList.add('border-teal-600', 'text-teal-700');
+            (e.target as HTMLElement).classList.remove('border-transparent', 'text-gray-500');
+
+            // Show content
+            Object.values(teacherReview.contents).forEach(c => c.classList.add('hidden'));
+            teacherReview.contents[targetId as keyof typeof teacherReview.contents].classList.remove('hidden');
+        });
     });
-    teacherReview.submitFeedbackButton.addEventListener('click', handleSubmitSessionFeedback);
-    teacherUploadReview.backButton.addEventListener('click', () => showScreen('teacherDashboard'));
+
+    teacherReview.backToDashboardButton.addEventListener('click', () => showScreen('teacherDashboard'));
+    teacherUploadReview.backButton.addEventListener('click', () => {
+        // Go back to the student's profile instead of main dashboard
+        showStudentFullProfile(reviewingStudentId);
+    });
     teacherUploadReview.submitButton.addEventListener('click', handleSubmitUploadFeedback);
     teacherQASystem.button.addEventListener('click', handleStudentQuestion);
 
@@ -443,15 +459,14 @@ function setupEventListeners() {
     document.body.addEventListener('click', async (e) => {
         const target = e.target as HTMLElement;
         const approveButton = target.closest<HTMLButtonElement>('.approve-button');
-        const viewSessionsButton = target.closest<HTMLButtonElement>('.view-sessions-button');
-        const reviewSessionButton = target.closest<HTMLButtonElement>('.review-session-button');
+        const viewProfileButton = target.closest<HTMLButtonElement>('.view-sessions-button');
+        
         const reviewUploadButton = target.closest<HTMLButtonElement>('.review-upload-button');
         const replyQuestionButton = target.closest<HTMLButtonElement>('.reply-question-button');
 
         if (approveButton) await handleApproveRequest(approveButton.dataset.uid!);
-        if (viewSessionsButton) await showStudentSessionReviewList(viewSessionsButton.dataset.studentid!);
-        if (reviewSessionButton) await showSessionDetailReview(reviewSessionButton.dataset.studentid!, reviewSessionButton.dataset.sessionid!);
-        if (reviewUploadButton) await showUploadReviewDetail(reviewUploadButton.dataset.uploadid!);
+        if (viewProfileButton) await showStudentFullProfile(viewProfileButton.dataset.studentid!);
+        if (reviewUploadButton) await showUploadReviewDetail(reviewUploadButton.dataset.uploadid!, reviewUploadButton.dataset.studentid!);
         if (replyQuestionButton) await handleReplyToQuestion(replyQuestionButton.dataset.questionid!);
     });
 }
@@ -577,27 +592,22 @@ async function handleLogin() {
     loginButton.textContent = 'Giriş Yapılıyor...';
 
     // --- ADMIN BOOTSTRAP LOGIC ---
-    // This allows the specific admin email/pass to autocreate and autoapprove itself.
     if (email === 'drahmeterdem@gmail.com' && password === '708090') {
         try {
             console.log("Admin bootstrap initiated...");
             let userCredential;
             try {
-                // Try logging in first
                 userCredential = await db.signInWithEmail(email, password);
             } catch (loginErr: any) {
-                // Handle cases where user doesn't exist OR password is wrong (masked by security)
                 if (loginErr.code === 'auth/user-not-found' || 
                     loginErr.code === 'auth/invalid-login-credentials' || 
                     loginErr.code === 'auth/invalid-credential') {
                     
                     try {
-                        // Attempt to create the admin user
                         userCredential = await db.signUpWithEmail(email, password);
                     } catch (createErr: any) {
-                        // If creation fails because email is in use, it means the user existed but password was wrong
                         if (createErr.code === 'auth/email-already-in-use') {
-                            throw new Error("Admin hesabı zaten var ancak girilen şifre (708090) bu hesapla eşleşmiyor. Lütfen doğru şifreyi kullanın.");
+                            throw new Error("Admin hesabı zaten var ancak girilen şifre (708090) bu hesapla eşleşmiyor.");
                         }
                         throw createErr;
                     }
@@ -606,7 +616,6 @@ async function handleLogin() {
                 }
             }
 
-            // Force update permissions in Firestore
             const adminProfile = {
                 email: email,
                 approved: true,
@@ -614,8 +623,6 @@ async function handleLogin() {
                 createdAt: new Date().toISOString()
             };
             await db.setData('users', userCredential.user.uid, adminProfile);
-            
-            // Allow state listener to redirect
             return;
         } catch (error: any) {
             console.error("Admin bootstrap failed:", error);
@@ -626,13 +633,10 @@ async function handleLogin() {
             return;
         }
     }
-    // --- END ADMIN BOOTSTRAP ---
 
     try {
         const userCredential = await db.signInWithEmail(email, password);
         const user = userCredential.user;
-        
-        // Manual check for approval before proceeding
         const userProfile = await db.getData('users', user.uid);
         if (userProfile && userProfile.role === 'student' && !userProfile.approved) {
              (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "Hesabınız henüz Dr. Ahmet Erdem tarafından onaylanmamıştır.";
@@ -640,7 +644,6 @@ async function handleLogin() {
              await db.signOut();
              return;
         }
-        // onAuthStateChanged will handle routing if successful
     } catch (error) {
         console.error("Login failed:", error);
         (loginError.querySelector('.login-error-text') as HTMLElement).textContent = getFirebaseAuthErrorMessage(error);
@@ -677,7 +680,7 @@ async function handleRegister() {
         registerError.classList.remove('hidden');
         return;
     }
-    if (email === 'drahmeterdem@gmail.com' || email === 'teacher@admin.com') { // Prevent registration with teacher email
+    if (email === 'drahmeterdem@gmail.com' || email === 'teacher@admin.com') { 
         (registerError.querySelector('.register-error-text') as HTMLElement).textContent = "Bu e-posta adresi yönetici için ayrılmıştır.";
         registerError.classList.remove('hidden');
         return;
@@ -690,8 +693,6 @@ async function handleRegister() {
         const userCredential = await db.signUpWithEmail(email, password);
         const user = userCredential.user;
 
-        // 1. Create a user profile in 'users' collection
-        // IMPORTANT: We await these specifically to ensure data integrity before showing success
         const newUserProfile = { 
             email: user.email, 
             approved: false,
@@ -700,7 +701,6 @@ async function handleRegister() {
         };
         await db.setData('users', user.uid, newUserProfile);
 
-        // 2. Create a request in 'registrationRequests' for the teacher
         const newRequest = {
             email: user.email,
             uid: user.uid,
@@ -712,10 +712,8 @@ async function handleRegister() {
         (registerSuccess.querySelector('.register-success-text') as HTMLElement).textContent = "Kayıt talebiniz alındı! Dr. Ahmet Erdem hesabınızı onayladıktan sonra giriş yapabilirsiniz.";
         registerSuccess.classList.remove('hidden');
         
-        // Sign the user out immediately after registration to prevent auto-login
         await db.signOut();
         
-        // Auto switch to login view after 4 seconds
         setTimeout(() => {
             toggleLoginViews('login');
         }, 4000);
@@ -831,14 +829,6 @@ function addMessageToChat(container: HTMLElement, sender: 'therapist' | 'client'
     
     messageElement.appendChild(bubble);
 
-    if (isClient && rationale && onRationaleClick) { // Rationale is usually for the AI's logic (Client role here from AI perspective) or Therapist suggestions
-        // In this app structure, rationale comes with AI response (Client).
-        // Wait, rationale usually explains why the AI chose that response OR critiques the user.
-        // Let's keep existing logic: AI returns rationale for its own behavior or feedback.
-    }
-
-    // Existing logic was slightly mixed. The AI returns rationale for the therapist's PREVIOUS move usually.
-    // Let's attach rationale button if provided.
     if (rationale && onRationaleClick) {
         const rationaleButton = document.createElement('button');
         rationaleButton.innerHTML = `<span class="material-symbols-outlined text-sm mr-1">lightbulb</span> Analiz`;
@@ -893,7 +883,6 @@ function updateSimulationUI(aiData: any) {
     simulation.customResponseInput.disabled = false;
     simulation.sendCustomResponseButton.disabled = false;
     
-    // Smooth scroll to bottom to show new options
     setTimeout(() => {
         simulation.chatContainer.scrollTop = simulation.chatContainer.scrollHeight;
     }, 100);
@@ -936,25 +925,26 @@ async function renderStudentDashboard() {
 }
 
 async function renderContinueSessionCard() {
-    const savedSession = getSavedSession(); // Local session is temporary
-    if (savedSession) {
+    // Check if there are any sessions with status "in-progress" in DB
+    const allSessions = await getAllSessionsForStudent(currentUserId);
+    const inProgressSession = allSessions.find(s => s.status === 'in-progress');
+
+    if (inProgressSession) {
         continueSessionCard.innerHTML = `
             <div class="flex items-center gap-4">
                  <div class="bg-indigo-100 p-3 rounded-full text-indigo-600">
                     <span class="material-symbols-outlined text-2xl">resume</span>
                  </div>
                  <div>
-                    <h3 class="text-lg font-bold text-gray-800">Devam Et: ${savedSession.scenario.title}</h3>
-                    <p class="text-sm text-gray-500">Kaldığınız yerden simülasyona dönün.</p>
+                    <h3 class="text-lg font-bold text-gray-800">Devam Et: ${inProgressSession.scenario.title}</h3>
+                    <p class="text-sm text-gray-500">Yarım kalan simülasyonunuza dönün.</p>
                  </div>
             </div>
             <div class="mt-4 flex gap-2 w-full">
-                <button id="resume-session-button" class="flex-1 rounded-lg h-9 bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-all text-sm shadow-sm">Simülasyona Dön</button>
-                <button id="delete-session-button" class="flex items-center justify-center rounded-lg h-9 w-9 bg-gray-100 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all"><span class="material-symbols-outlined text-lg">delete</span></button>
+                <button id="resume-session-button" data-sid="${inProgressSession.id}" class="flex-1 rounded-lg h-9 bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-all text-sm shadow-sm">Simülasyona Dön</button>
             </div>
         `;
-        document.getElementById('resume-session-button')!.addEventListener('click', resumeSession);
-        document.getElementById('delete-session-button')!.addEventListener('click', deleteSavedSession);
+        document.getElementById('resume-session-button')!.addEventListener('click', (e) => resumeSession((e.target as HTMLElement).dataset.sid!));
     } else {
         continueSessionCard.innerHTML = `
              <div class="flex items-center gap-4">
@@ -977,8 +967,6 @@ function renderProgressTracking() {
     if (sessionScores.length > 0) {
         progressTracking.card.classList.remove('hidden');
         progressTracking.container.innerHTML = createChartHTML(calculateAverageScores(sessionScores));
-    } else {
-        // progressTracking.card.classList.add('hidden'); // Keep visible but empty state handled in HTML
     }
 }
 
@@ -989,14 +977,14 @@ async function renderCumulativeProgress() {
     }
     const allSessions = await getAllSessionsForStudent(currentUserId);
     if (allSessions.length > 0) {
-        const allScores = allSessions.flatMap(s => s.scores);
+        const completedSessions = allSessions.filter(s => s.status === 'completed');
+        const allScores = completedSessions.flatMap(s => s.scores);
         if (allScores.length > 0) {
             cumulativeProgress.card.classList.remove('hidden');
             cumulativeProgress.container.innerHTML = createChartHTML(calculateAverageScores(allScores));
             return;
         }
     }
-     // Keep empty state
 }
 
 function createChartHTML(scores: any): string {
@@ -1033,7 +1021,6 @@ function renderAchievements() {
         <div class="flex flex-col items-center p-2 rounded-lg bg-gray-50 border border-gray-100" title="5 simülasyon tamamla"><span class="material-symbols-outlined text-3xl text-gray-400">military_tech</span><span class="text-[10px] mt-1 text-gray-500 font-medium">İstikrarlı</span></div>
         <div class="flex flex-col items-center p-2 rounded-lg bg-gray-50 border border-gray-100" title="Empati puanını 8'in üzerine çıkar"><span class="material-symbols-outlined text-3xl text-gray-400">psychology</span><span class="text-[10px] mt-1 text-gray-500 font-medium">Empatik</span></div>
     `;
-    // Logic to colorize based on actual stats would go here
 }
 
 async function renderRecommendations() {
@@ -1112,34 +1099,71 @@ async function renderQACard() {
                  teacherQASystem.history.innerHTML += `<div class="text-xs text-gray-400 italic text-center my-2 flex items-center justify-center gap-1"><span class="w-1 h-1 bg-gray-400 rounded-full animate-pulse"></span> Yanıt bekleniyor</div>`;
             }
         });
-         // Scroll to bottom
          teacherQASystem.history.scrollTop = teacherQASystem.history.scrollHeight;
     }
 }
 
 
 // --- Session Progress Management ---
-async function saveSessionProgress() {
-    if (currentScenario && chatHistory.length > 0) {
-        await completeSession(); 
-        showNotification("İlerlemeniz kalıcı olarak kaydedildi ve seans tamamlandı!", "success");
+async function saveSessionProgress(status: 'completed' | 'in-progress' = 'completed') {
+    if (!currentScenario || chatHistory.length === 0 || !isDbConnected) {
+        if(!isDbConnected) showNotification("Veritabanı bağlantısı olmadığından seans kaydedilemedi.", "error");
+        return;
+    }
+
+    // Always use a session ID (new or existing)
+    // For now, let's create a new ID if not resuming, or overwrite if we had a resume feature
+    // To support "Resume", we'd need to store currentSessionID in a variable. 
+    // Simplified: Always use timestamp ID for now, but save "status".
+    // Better: If user is resuming, use that ID.
+    
+    // NOTE: For MVP simplicity with the "incomplete" request:
+    // When saving as "in-progress", we save to DB. 
+    // We should probably check if we are already in a session ID.
+    const sessionId = reviewingSessionId || `sess_${Date.now()}`; 
+
+    const sessionData = {
+        id: sessionId,
+        userId: currentUserId,
+        scenario: currentScenario,
+        history: chatHistory,
+        scores: sessionScores,
+        timestamp: new Date().toISOString(),
+        feedback: null,
+        status: status // 'in-progress' or 'completed'
+    };
+
+    await db.setDataInSubcollection('students', currentUserId, 'sessions', sessionId, sessionData);
+
+    if (status === 'completed') {
+        showNotification("Seans başarıyla tamamlandı ve kaydedildi!", "success");
         setTimeout(() => showScreen('studentDashboard'), 1000);
+        
+        // Reset state
+        chatHistory = [];
+        sessionScores = [];
+        currentScenario = null;
+        reviewingSessionId = '';
     } else {
-        showNotification("Kaydedilecek bir ilerleme yok.", "info");
+        showNotification("İlerlemeniz kaydedildi.", "success");
+        setTimeout(() => showScreen('studentDashboard'), 1000);
+        // Reset state because we left the screen
+        chatHistory = [];
+        sessionScores = [];
+        currentScenario = null;
+        reviewingSessionId = '';
     }
 }
 
-// Temporary session is saved locally for quick resume
-function getSavedSession() {
-    return safeJsonParse(`session_${currentUserId}`, null);
-}
+async function resumeSession(sessionId: string) {
+    const sessions = await getAllSessionsForStudent(currentUserId);
+    const sessionToResume = sessions.find(s => s.id === sessionId);
 
-function resumeSession() {
-    const savedSession = getSavedSession();
-    if (savedSession) {
-        currentScenario = savedSession.scenario;
-        chatHistory = savedSession.history;
-        sessionScores = savedSession.scores || [];
+    if (sessionToResume) {
+        currentScenario = sessionToResume.scenario;
+        chatHistory = sessionToResume.history;
+        sessionScores = sessionToResume.scores || [];
+        reviewingSessionId = sessionToResume.id; // Track ID to update it later
 
         showScreen('simulation');
         simulation.problemDisplay.textContent = currentScenario!.title;
@@ -1148,7 +1172,6 @@ function resumeSession() {
 
         chatHistory.forEach(turn => {
             if (turn.role === 'user') {
-                 // Try to find previous model response for rationale... complicate re-hydration logic omitted for brevity in resume
                 addMessageToChat(simulation.chatContainer,'therapist', turn.parts[0].text);
             } else if (turn.role === 'model') {
                  try {
@@ -1159,46 +1182,22 @@ function resumeSession() {
                 }
             }
         });
+        
+        // Re-render options from last turn
         try {
             const lastModelResponse = JSON.parse(chatHistory[chatHistory.length - 1].parts[0].text);
             updateSimulationUI(lastModelResponse);
         } catch (e) {
-            console.error("Failed to parse last model response on session resume:", e);
-            simulation.optionsContainer.innerHTML = `<p class="text-red-500 col-span-2 text-center text-sm">Veri hatası. Lütfen yeniden başlayın.</p>`;
+            // If last turn wasn't model or parsing failed
+             const initialOptions = [
+                "Devam edelim...",
+                "Başka bir konuya geçelim mi?",
+             ];
+             renderOptions(initialOptions);
         }
     }
 }
 
-function deleteSavedSession() {
-    localStorage.removeItem(`session_${currentUserId}`);
-    showNotification("Taslak seans silindi.", "info");
-    renderContinueSessionCard();
-}
-
-async function completeSession() {
-    if (!currentScenario || chatHistory.length === 0 || !isDbConnected) {
-        if(!isDbConnected) showNotification("Veritabanı bağlantısı olmadığından seans kaydedilemedi.", "error");
-        return;
-    }
-
-    const sessionData = {
-        userId: currentUserId,
-        scenario: currentScenario,
-        history: chatHistory,
-        scores: sessionScores,
-        timestamp: new Date().toISOString(),
-        feedback: null
-    };
-
-    const newId = `sess_${Date.now()}`;
-    await db.setDataInSubcollection('students', currentUserId, 'sessions', newId, sessionData);
-
-    // Clear local temporary session
-    localStorage.removeItem(`session_${currentUserId}`);
-    chatHistory = [];
-    sessionScores = [];
-    currentScenario = null;
-}
 
 async function getAllSessionsForStudent(userId: string): Promise<any[]> {
     if (!isDbConnected) return [];
@@ -1206,6 +1205,29 @@ async function getAllSessionsForStudent(userId: string): Promise<any[]> {
 }
 
 // --- Analysis Screen Logic ---
+async function handleFileUpload() {
+    const file = analysis.fileInput.files?.[0];
+    if (!file) return;
+
+    if (file.name.endsWith('.docx')) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const arrayBuffer = event.target?.result as ArrayBuffer;
+            mammoth.extractRawText({arrayBuffer: arrayBuffer})
+                .then(function(result: any){
+                    analysis.transcriptInput.value = result.value;
+                })
+                .catch(function(err: any){
+                    console.error(err);
+                    showNotification("Dosya okunamadı.", "error");
+                });
+        };
+        reader.readAsArrayBuffer(file);
+    } else {
+        showNotification("Lütfen .docx uzantılı bir Word dosyası seçin.", "error");
+    }
+}
+
 async function handleAnalyzeTranscript() {
     if (!ai) {
         showNotification("Sistem aktif değil. Lütfen öğretmenin API anahtarını yapılandırmasını sağlayın.", "error");
@@ -1213,9 +1235,14 @@ async function handleAnalyzeTranscript() {
     }
     const transcript = analysis.transcriptInput.value;
     if (!transcript.trim()) {
-        showNotification("Lütfen analiz için bir metin girin.", "error");
+        showNotification("Lütfen analiz için bir metin girin veya dosya yükleyin.", "error");
         return;
     }
+    
+    // Metadata is optional for analysis but required for sending
+    const clientName = analysis.clientNameInput.value.trim();
+    const sessionNum = analysis.sessionNumInput.value.trim();
+
     analysis.analyzeButton.disabled = true;
     analysis.analyzeButton.innerHTML = `<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> Analiz Ediliyor...`;
     analysis.output.innerHTML = `
@@ -1259,7 +1286,12 @@ async function handleAnalyzeTranscript() {
             const jsonResponse = JSON.parse(jsonString);
             renderAnalysisOutput(jsonResponse);
             analysis.sendButton.classList.remove('hidden');
-            currentAnalysisCache = { transcript, analysis: jsonResponse };
+            currentAnalysisCache = { 
+                transcript, 
+                analysis: jsonResponse,
+                clientName: clientName,
+                sessionNumber: sessionNum
+            };
         } catch (parseError) {
             throw new Error("Failed to parse the JSON data from the AI analysis.");
         }
@@ -1299,10 +1331,16 @@ async function handleSendAnalysisToTeacher() {
     }
 
     const uploadId = `upload_${Date.now()}`;
+    // Re-read inputs in case user changed them after analysis
+    const clientName = analysis.clientNameInput.value.trim() || "Belirtilmedi";
+    const sessionNum = analysis.sessionNumInput.value.trim() || "1";
+
     const uploadData = {
         id: uploadId,
         studentId: currentUserId,
         studentEmail: currentStudentName,
+        clientName: clientName,
+        sessionNumber: sessionNum,
         ...currentAnalysisCache,
         timestamp: new Date().toISOString(),
         feedback: null
@@ -1311,7 +1349,6 @@ async function handleSendAnalysisToTeacher() {
     await db.setData('uploads', uploadId, uploadData);
     showNotification("Rapor başarıyla Dr. Ahmet Erdem'e iletildi!", "success");
     analysis.sendButton.classList.add('hidden');
-    // Don't clear cache immediately so user sees what they sent
 }
 
 // --- Student-Teacher Communication ---
@@ -1498,7 +1535,6 @@ async function handleApproveRequest(uidToApprove: string) {
         showNotification(`Onaylanacak kullanıcı profili bulunamadı.`, 'error');
     }
     
-    // 4. Refresh the requests list
     await renderRegistrationRequests();
 }
 
@@ -1507,7 +1543,6 @@ async function renderRegistrationRequests() {
         requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Bağlantı gerekli.</p>';
         return;
     }
-    // Fetch directly from the dedicated requests collection for stability
     const pendingRequests = await db.getCollection('registrationRequests');
 
     requestsListContainer.innerHTML = '';
@@ -1538,7 +1573,6 @@ async function renderRegistrationRequests() {
 }
 
 function renderSettingsTab() {
-    // Gemini API Key Section
     const currentKey = localStorage.getItem(API_KEY_STORAGE_KEY);
     const maskedKey = currentKey ? `•••••••••••••••••••••••••••••••${currentKey.slice(-4)}` : "Henüz ayarlanmadı.";
     
@@ -1614,76 +1648,187 @@ async function renderStudentSimulationsList() {
     container.appendChild(studentList);
 }
 
-async function showStudentSessionReviewList(studentId: string) {
+// New: Full Profile Aggregation
+async function showStudentFullProfile(studentId: string) {
     reviewingStudentId = studentId;
     showScreen('teacherReview');
-    teacherReview.listView.classList.remove('hidden');
-    teacherReview.detailView.classList.add('hidden');
-
+    
+    // Hide details, show loading or empty first
+    teacherReview.contents.simulations.innerHTML = '<div class="text-center p-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600 mx-auto"></div></div>';
+    
     const studentProfile = await db.getData('users', studentId);
-    teacherReview.listStudentName.textContent = studentProfile?.email || studentId;
+    teacherReview.studentName.textContent = studentProfile?.email.split('@')[0] || "Öğrenci";
+    teacherReview.studentEmail.textContent = studentProfile?.email || studentId;
 
-    const sessions = await getAllSessionsForStudent(studentId);
-    teacherReview.sessionListContainer.innerHTML = '';
+    // Fetch all data in parallel
+    const [sessions, uploads, questions] = await Promise.all([
+        getAllSessionsForStudent(studentId),
+        db.getCollectionWhere('uploads', 'studentId', '==', studentId),
+        db.getCollectionWhere('qas', 'studentId', '==', studentId)
+    ]);
+
+    // Update Stats
+    const completed = sessions.filter(s => s.status === 'completed').length;
+    const incomplete = sessions.filter(s => s.status === 'in-progress').length;
+    teacherReview.statCompleted.textContent = completed.toString();
+    teacherReview.statIncomplete.textContent = incomplete.toString();
+
+    // 1. Render Simulations
+    teacherReview.contents.simulations.innerHTML = '';
     if (sessions.length === 0) {
-        teacherReview.sessionListContainer.innerHTML = '<p class="text-center text-gray-400 col-span-2 py-8">Bu öğrenci henüz bir simülasyon tamamlamadı.</p>';
-        return;
-    }
-    sessions.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // newest first
-    sessions.forEach(session => {
-        teacherReview.sessionListContainer.innerHTML += `
-            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between h-full">
-                <div class="mb-4">
-                    <div class="flex justify-between items-start mb-2">
-                        <span class="bg-indigo-50 text-indigo-700 text-xs font-bold px-2 py-1 rounded-full">Simülasyon</span>
+        teacherReview.contents.simulations.innerHTML = '<p class="text-center text-gray-400 py-8">Simülasyon kaydı yok.</p>';
+    } else {
+        sessions.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        sessions.forEach(session => {
+            const isCompleted = session.status === 'completed';
+            teacherReview.contents.simulations.innerHTML += `
+            <div class="bg-white p-4 rounded-xl shadow-sm border ${isCompleted ? 'border-gray-100' : 'border-amber-200 bg-amber-50'} flex items-center justify-between">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="${isCompleted ? 'bg-indigo-50 text-indigo-700' : 'bg-amber-100 text-amber-700'} text-xs font-bold px-2 py-0.5 rounded-full">
+                            ${isCompleted ? 'Tamamlandı' : 'Devam Ediyor'}
+                        </span>
                         <span class="text-xs text-gray-400">${new Date(session.timestamp).toLocaleDateString('tr-TR')}</span>
                     </div>
-                    <p class="font-bold text-gray-800">${session.scenario.title}</p>
+                    <p class="font-bold text-gray-800 text-sm">${session.scenario.title}</p>
                 </div>
-                <button data-studentid="${studentId}" data-sessionid="${session.id}" class="review-session-button w-full flex items-center justify-center rounded-lg h-9 bg-white border border-gray-200 text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-all text-sm font-medium">
-                    İncele
-                </button>
+                 <!-- Note: For MVP we use the same review detail function for both types, though incomplete ones might be short -->
+                 <button onclick="showSessionDetailReview('${studentId}', '${session.id}')" class="text-sm font-medium text-indigo-600 hover:underline">İncele</button>
             </div>`;
-    });
+        });
+    }
+
+    // 2. Render Uploads
+    teacherReview.contents.uploads.innerHTML = '';
+    if (uploads.length === 0) {
+        teacherReview.contents.uploads.innerHTML = '<p class="text-center text-gray-400 py-8">Yüklenen belge yok.</p>';
+    } else {
+        uploads.sort((a: any,b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        uploads.forEach(upload => {
+            teacherReview.contents.uploads.innerHTML += `
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="bg-teal-50 text-teal-700 text-xs font-bold px-2 py-0.5 rounded-full">Belge</span>
+                        <span class="text-xs text-gray-400">${new Date(upload.timestamp).toLocaleDateString('tr-TR')}</span>
+                    </div>
+                    <p class="font-bold text-gray-800 text-sm">Danışan: ${upload.clientName || '?'}</p>
+                    <p class="text-xs text-gray-500">Oturum: ${upload.sessionNumber || '?'}</p>
+                </div>
+                 <button data-uploadid="${upload.id}" data-studentid="${studentId}" class="review-upload-button text-sm font-medium text-teal-600 hover:underline">İncele</button>
+            </div>`;
+        });
+    }
+
+    // 3. Render Questions
+    teacherReview.contents.questions.innerHTML = '';
+    if (questions.length === 0) {
+        teacherReview.contents.questions.innerHTML = '<p class="text-center text-gray-400 py-8">Soru kaydı yok.</p>';
+    } else {
+        questions.sort((a: any,b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        questions.forEach(qa => {
+            teacherReview.contents.questions.innerHTML += `
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p class="text-xs text-gray-400 mb-1">${new Date(qa.timestamp).toLocaleString('tr-TR')}</p>
+                <p class="text-sm text-gray-800 italic mb-2">"${qa.question}"</p>
+                ${qa.answer ? 
+                    `<div class="pl-3 border-l-2 border-green-500 text-sm text-gray-600"><span class="font-bold text-green-700">Cevap:</span> ${qa.answer}</div>` : 
+                    `<span class="text-xs text-amber-600 font-medium bg-amber-50 px-2 py-0.5 rounded">Yanıt Bekliyor</span>`
+                }
+            </div>`;
+        });
+    }
 }
+
+// Make this globally accessible for the onclick in HTML string
+(window as any).showSessionDetailReview = showSessionDetailReview;
 
 async function showSessionDetailReview(studentId: string, sessionId: string) {
     reviewingStudentId = studentId;
     reviewingSessionId = sessionId;
+    // We are reusing the chat review UI but inside a modal logic or separate screen?
+    // Current design: TeacherReviewScreen has a LIST view and DETAIL view.
+    // I need to adapt existing "teacher-review-detail-view" to work within the new profile context or hide the profile list.
+    // Let's hide the profile container and show the detail view inside the screen.
+    
+    // Hide Profile View
+    document.getElementById('teacher-review-detail-view')!.classList.add('hidden'); // The new profile view ID
+    
+    // NOTE: In my HTML update, I used 'teacher-review-detail-view' for the PROFILE. 
+    // The OLD detail view for chat history needs to be preserved or re-created.
+    // Let's look at HTML structure: 
+    // I replaced 'teacher-review-list-view' (which was just list of sessions) with 'teacher-review-detail-view' (Profile).
+    // I need a separate "Session Chat View".
+    
+    // Correct approach for this iteration:
+    // 1. Show a modal for session details OR
+    // 2. Swap the Profile content with Chat content.
+    
+    // Let's use a simple Modal approach for session details to avoid complex navigation state.
+    // Re-using 'teacher-review-screen' logic might be tricky if I overwrote the HTML.
+    
+    // Wait, I updated HTML for 'teacher-review-detail-view' to be the PROFILE.
+    // I removed the old chat container from that specific div in the HTML provided.
+    // I need to add a specific container for CHAT REVIEW back into the HTML or create a dynamic one.
+    
+    // Actually, looking at the HTML change, I didn't include a specific "Chat Review" container in the new HTML block.
+    // I should generate it dynamically in a modal or overlay.
+    
+    const modalHtml = `
+    <div id="session-review-modal" class="fixed inset-0 bg-white z-50 flex flex-col animate-fade-in-up">
+        <div class="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+            <h3 class="font-bold text-gray-800">Simülasyon Detayı</h3>
+            <button onclick="document.getElementById('session-review-modal').remove()" class="text-gray-500 hover:text-red-600"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        <div class="flex-1 flex overflow-hidden">
+             <div id="modal-chat-container" class="flex-1 p-6 overflow-y-auto bg-slate-50 space-y-4"></div>
+             <div class="w-80 border-l border-gray-200 p-4 bg-white overflow-y-auto">
+                 <div id="modal-charts" class="mb-4"></div>
+                 <h4 class="font-bold text-sm mb-2">Geri Bildirim</h4>
+                 <textarea id="modal-feedback-input" class="w-full border-gray-300 rounded-lg text-sm mb-2" rows="4"></textarea>
+                 <button id="modal-save-feedback" class="w-full bg-amber-600 text-white rounded-lg py-2">Kaydet</button>
+             </div>
+        </div>
+    </div>`;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
     const sessions = await getAllSessionsForStudent(studentId);
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
     
-    const studentProfile = await db.getData('users', studentId);
-
-    teacherReview.listView.classList.add('hidden');
-    teacherReview.detailView.classList.remove('hidden');
-    teacherReview.studentName.textContent = studentProfile?.email || studentId;
-    teacherReview.problemDisplay.textContent = session.scenario.title;
-    teacherReview.chatContainer.innerHTML = '';
-
+    const chatContainer = document.getElementById('modal-chat-container')!;
     session.history.forEach((turn: any) => {
         if (turn.role === 'user') {
-            addMessageToChat(teacherReview.chatContainer, 'therapist', turn.parts[0].text);
+            addMessageToChat(chatContainer, 'therapist', turn.parts[0].text);
         } else if (turn.role === 'model') {
             try {
                 const modelResponse = JSON.parse(turn.parts[0].text);
-                addMessageToChat(teacherReview.chatContainer, 'client', modelResponse.clientResponse);
+                addMessageToChat(chatContainer, 'client', modelResponse.clientResponse);
             } catch (e) {
-                addMessageToChat(teacherReview.chatContainer, 'client', turn.parts[0].text);
+                addMessageToChat(chatContainer, 'client', turn.parts[0].text);
             }
         }
     });
-
-    teacherReview.chartsContainer.innerHTML = createChartHTML(calculateAverageScores(session.scores));
     
-    teacherReview.feedbackInput.value = session.feedback || '';
-    if (session.feedback) {
-        teacherReview.existingFeedback.innerHTML = session.feedback;
+    if (session.scores && session.scores.length > 0) {
+        document.getElementById('modal-charts')!.innerHTML = createChartHTML(calculateAverageScores(session.scores));
     } else {
-        teacherReview.existingFeedback.innerHTML = 'Henüz not eklenmedi.';
+        document.getElementById('modal-charts')!.innerHTML = '<p class="text-xs text-gray-400">Puanlama verisi yok (Yarım kalmış olabilir).</p>';
     }
+
+    const feedbackInput = document.getElementById('modal-feedback-input') as HTMLTextAreaElement;
+    feedbackInput.value = session.feedback || '';
+    
+    document.getElementById('modal-save-feedback')!.addEventListener('click', async () => {
+         const fb = feedbackInput.value.trim();
+         if(fb) {
+             await db.updateDataInSubcollection('students', studentId, 'sessions', sessionId, { feedback: fb });
+             showNotification("Kaydedildi.", "success");
+         }
+    });
 }
+
 
 async function handleSubmitSessionFeedback() {
     const feedbackText = teacherReview.feedbackInput.value.trim();
@@ -1720,23 +1865,25 @@ async function renderUploadedAnalysesList() {
                     <div class="bg-teal-50 p-2.5 rounded-lg text-teal-600"><span class="material-symbols-outlined">description</span></div>
                     <div>
                         <p class="font-bold text-gray-800 text-sm">${upload.studentEmail || upload.studentId}</p>
-                        <p class="text-xs text-gray-500">${new Date(upload.timestamp).toLocaleString('tr-TR')}</p>
+                        <p class="text-xs text-gray-500">${new Date(upload.timestamp).toLocaleString('tr-TR')} • Danışan: ${upload.clientName || '-'}</p>
                     </div>
                 </div>
-                <button data-uploadid="${upload.id}" class="review-upload-button flex items-center justify-center rounded-lg h-9 px-4 bg-teal-600 text-white hover:bg-teal-700 transition-colors text-sm font-medium shadow-sm">
+                <button data-uploadid="${upload.id}" data-studentid="${upload.studentId}" class="review-upload-button flex items-center justify-center rounded-lg h-9 px-4 bg-teal-600 text-white hover:bg-teal-700 transition-colors text-sm font-medium shadow-sm">
                     İncele
                 </button>
             </div>`;
     });
 }
 
-async function showUploadReviewDetail(uploadId: string) {
+async function showUploadReviewDetail(uploadId: string, studentId: string) {
     reviewingUploadId = uploadId;
+    reviewingStudentId = studentId; // Ensure we know who we are reviewing to go back correctly
     const upload = await db.getData('uploads', uploadId);
     if (!upload) return;
 
     showScreen('teacherUploadReview');
     teacherUploadReview.studentName.textContent = upload.studentEmail || upload.studentId;
+    teacherUploadReview.metaDisplay.textContent = `Danışan: ${upload.clientName || '-'} | Oturum: ${upload.sessionNumber || '-'}`;
     teacherUploadReview.transcript.textContent = upload.transcript;
     renderAnalysisOutput(upload.analysis, teacherUploadReview.analysis);
 
@@ -1758,7 +1905,7 @@ async function handleSubmitUploadFeedback() {
     }
     await db.updateData('uploads', reviewingUploadId, { feedback: feedbackText });
     showNotification("Geri bildirim kaydedildi.", "success");
-    await showUploadReviewDetail(reviewingUploadId); // Refresh view
+    await showUploadReviewDetail(reviewingUploadId, reviewingStudentId); // Refresh view
 }
 
 async function renderStudentQuestions() {
@@ -1858,7 +2005,7 @@ async function renderClassAnalytics() {
                 <div class="bg-teal-50 p-3 rounded-lg text-teal-600"><span class="material-symbols-outlined text-3xl">psychology_alt</span></div>
                 <div>
                     <p class="text-2xl font-bold text-gray-800">${totalSimulations}</p>
-                    <p class="text-xs text-gray-500 uppercase font-semibold">Tamamlanan Seans</p>
+                    <p class="text-xs text-gray-500 uppercase font-semibold">Toplam Seans</p>
                 </div>
             </div>
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
