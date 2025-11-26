@@ -73,6 +73,14 @@ const loginError = document.getElementById('login-error')!;
 const registerError = document.getElementById('register-error')!;
 const registerSuccess = document.getElementById('register-success')!;
 
+// Login UI Toggles
+const btnRoleStudent = document.getElementById('btn-role-student')!;
+const btnRoleTeacher = document.getElementById('btn-role-teacher')!;
+const roleSlider = document.getElementById('role-slider')!;
+const loginBrandPanel = document.getElementById('login-brand-panel')!;
+const brandTitle = document.getElementById('brand-title')!;
+const brandSubtitle = document.getElementById('brand-subtitle')!;
+const registerLinkContainer = document.getElementById('register-link-container')!;
 
 // Problem Selection
 const problemSelectionContainer = document.getElementById('problem-selection-container')!;
@@ -244,6 +252,7 @@ const scenarios: Scenario[] = [
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
+    setupLoginTabs(); // Initialize login tabs
     initializeApp();
 });
 
@@ -276,20 +285,23 @@ async function initializeApp() {
                     showNotification("Lütfen sistemi etkinleştirmek için Gemini API anahtarınızı girin.", "info");
                 }
                 showScreen('teacherDashboard');
-            } else if (userProfile && userProfile.role === 'student' && userProfile.approved) {
-                currentUserId = user.uid;
-                currentStudentName = user.email; // Use email for display name
-                showScreen('studentDashboard');
-            } else if (userProfile && !userProfile.approved) {
-                // User is registered but not approved
-                showScreen('login');
-                loginError.textContent = "Hesabınız henüz öğretmen tarafından onaylanmadı.";
-                loginError.classList.remove('hidden');
-                await db.signOut();
+            } else if (userProfile && userProfile.role === 'student') {
+                if (userProfile.approved) {
+                    currentUserId = user.uid;
+                    currentStudentName = userProfile.email; // Use email
+                    showScreen('studentDashboard');
+                } else {
+                     // User is registered but not approved - Force logout or Show Pending Message
+                     showScreen('login');
+                     loginError.textContent = "Hesabınız Dr. Ahmet Erdem tarafından henüz onaylanmamıştır. Onay sürecini bekleyiniz.";
+                     (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "Hesabınız Dr. Ahmet Erdem tarafından henüz onaylanmamıştır. Onay sürecini bekleyiniz.";
+                     loginError.classList.remove('hidden');
+                     await db.signOut();
+                }
             } else {
-                 // This case might happen if user is in Auth but not in DB (e.g., failed registration step).
+                 // Profile missing or error
                  showScreen('login');
-                 loginError.textContent = "Kullanıcı profili bulunamadı. Lütfen tekrar kayıt olun veya yöneticiyle iletişime geçin.";
+                 (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "Kullanıcı profili bulunamadı. Lütfen tekrar kayıt olun.";
                  loginError.classList.remove('hidden');
                  await db.signOut();
             }
@@ -341,25 +353,32 @@ function updateHeader() {
         logoutButton.classList.remove('hidden');
         if (isStudentScreen) {
             studentInfo.classList.remove('hidden');
-             document.getElementById('student-name-display')!.textContent = currentStudentName;
+            studentInfo.classList.add('flex');
+            document.getElementById('student-name-display')!.textContent = currentStudentName;
         } else {
             studentInfo.classList.add('hidden');
+             studentInfo.classList.remove('flex');
         }
     } else {
         logoutButton.classList.add('hidden');
         studentInfo.classList.add('hidden');
+        studentInfo.classList.remove('flex');
     }
     
-    backToSelectionButton.classList.toggle('hidden', currentScreen !== 'simulation' && currentScreen !== 'sessionAnalysis' && currentScreen !== 'studentDashboard');
-    saveProgressButton.classList.toggle('hidden', currentScreen !== 'simulation');
-
-    if (currentScreen === 'studentDashboard') {
-        backToSelectionButton.onclick = () => showScreen('problemSelection');
-        (backToSelectionButton.querySelector('span:last-child') as HTMLElement).textContent = 'Yeni Simülasyon Başlat';
-    } else {
-         backToSelectionButton.onclick = () => showScreen('problemSelection');
-        (backToSelectionButton.querySelector('span:last-child') as HTMLElement).textContent = 'Senaryolara Dön';
+    // Toggle Back button logic
+    backToSelectionButton.classList.toggle('hidden', currentScreen !== 'simulation' && currentScreen !== 'sessionAnalysis' && currentScreen !== 'studentDashboard' && currentScreen !== 'problemSelection');
+    if (currentScreen === 'studentDashboard') backToSelectionButton.classList.add('hidden'); // Dashboard is the root
+    if (currentScreen === 'problemSelection') {
+         backToSelectionButton.classList.remove('hidden');
+         backToSelectionButton.onclick = () => showScreen('studentDashboard');
+         (backToSelectionButton.querySelector('span:last-child') as HTMLElement).textContent = 'Panele Dön';
+    } else if (currentScreen === 'simulation' || currentScreen === 'sessionAnalysis') {
+         backToSelectionButton.classList.remove('hidden');
+         backToSelectionButton.onclick = () => showScreen('studentDashboard');
+         (backToSelectionButton.querySelector('span:last-child') as HTMLElement).textContent = 'Panele Dön';
     }
+
+    saveProgressButton.classList.toggle('hidden', currentScreen !== 'simulation');
 }
 
 
@@ -371,7 +390,6 @@ function setupEventListeners() {
     showRegisterView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('register'); });
     showLoginView.addEventListener('click', (e) => { e.preventDefault(); toggleLoginViews('login'); });
     logoutButton.addEventListener('click', logout);
-    backToSelectionButton.addEventListener('click', () => showScreen('problemSelection'));
     saveProgressButton.addEventListener('click', saveSessionProgress);
     goToAnalysisButton.addEventListener('click', () => showScreen('sessionAnalysis'));
     analysis.analyzeButton.addEventListener('click', handleAnalyzeTranscript);
@@ -422,6 +440,64 @@ function setupEventListeners() {
     });
 }
 
+// --- Login UI Logic ---
+function setupLoginTabs() {
+    btnRoleStudent.addEventListener('click', () => toggleLoginMode('student'));
+    btnRoleTeacher.addEventListener('click', () => toggleLoginMode('teacher'));
+}
+
+function toggleLoginMode(mode: 'student' | 'teacher') {
+    if (mode === 'student') {
+        // Switch Slider
+        roleSlider.style.transform = 'translateX(0%)';
+        btnRoleStudent.classList.replace('text-gray-500', 'text-gray-800');
+        btnRoleStudent.classList.add('font-bold');
+        btnRoleStudent.classList.remove('font-medium');
+        
+        btnRoleTeacher.classList.replace('text-gray-800', 'text-gray-500');
+        btnRoleTeacher.classList.remove('font-bold');
+        btnRoleTeacher.classList.add('font-medium');
+
+        // Styles for Student
+        loginBrandPanel.classList.remove('from-amber-800', 'to-amber-900');
+        loginBrandPanel.classList.add('from-teal-800', 'to-teal-900');
+        
+        loginButton.classList.remove('bg-amber-600', 'hover:bg-amber-700', 'shadow-amber-100');
+        loginButton.classList.add('bg-[#0f766e]', 'hover:bg-teal-800', 'shadow-teal-100');
+        
+        brandTitle.textContent = "Hoş Geldiniz";
+        brandSubtitle.textContent = "Gelişiminizi takip edin, süpervizyon alın ve yetkinliğinizi artırın.";
+        
+        registerLinkContainer.classList.remove('hidden');
+    } else {
+        // Switch Slider
+        roleSlider.style.transform = 'translateX(100%)';
+        btnRoleTeacher.classList.replace('text-gray-500', 'text-gray-800');
+        btnRoleTeacher.classList.add('font-bold');
+        btnRoleTeacher.classList.remove('font-medium');
+
+        btnRoleStudent.classList.replace('text-gray-800', 'text-gray-500');
+        btnRoleStudent.classList.remove('font-bold');
+        btnRoleStudent.classList.add('font-medium');
+
+        // Styles for Teacher (Supervisor)
+        loginBrandPanel.classList.remove('from-teal-800', 'to-teal-900');
+        loginBrandPanel.classList.add('from-amber-800', 'to-amber-900');
+
+        loginButton.classList.remove('bg-[#0f766e]', 'hover:bg-teal-800', 'shadow-teal-100');
+        loginButton.classList.add('bg-amber-600', 'hover:bg-amber-700', 'shadow-amber-100');
+
+        brandTitle.textContent = "Yönetim Paneli";
+        brandSubtitle.textContent = "Öğrenci gelişimlerini takip edin ve profesyonel geri bildirim sağlayın.";
+
+        registerLinkContainer.classList.add('hidden'); // Supervisors can't self-register
+    }
+    
+    // Clear errors
+    loginError.classList.add('hidden');
+}
+
+
 // --- Authentication & User Management ---
 
 function toggleLoginViews(view: 'login' | 'register') {
@@ -430,6 +506,13 @@ function toggleLoginViews(view: 'login' | 'register') {
     loginError.classList.add('hidden');
     registerError.classList.add('hidden');
     registerSuccess.classList.add('hidden');
+
+    // Reset inputs
+    emailInput.value = '';
+    passwordInput.value = '';
+    registerEmailInput.value = '';
+    registerPasswordInput.value = '';
+    registerConfirmPasswordInput.value = '';
 
     if (view === 'login') loginView.classList.remove('hidden');
     if (view === 'register') registerView.classList.remove('hidden');
@@ -441,13 +524,13 @@ function getFirebaseAuthErrorMessage(error: any): string {
             return 'Geçersiz e-posta adresi formatı.';
         case 'auth/user-not-found':
         case 'auth/wrong-password':
-            return 'Geçersiz e-posta veya şifre.';
+            return 'Kullanıcı bulunamadı veya şifre hatalı.';
         case 'auth/email-already-in-use':
-            return 'Bu e-posta adresi zaten kayıtlı.';
+            return 'Bu e-posta adresi zaten sisteme kayıtlı.';
         case 'auth/weak-password':
             return 'Şifre çok zayıf. En az 6 karakter olmalı.';
         default:
-            return 'Bir kimlik doğrulama hatası oluştu. Lütfen tekrar deneyin.';
+            return 'Bir hata oluştu. Lütfen tekrar deneyin.';
     }
 }
 
@@ -461,7 +544,7 @@ async function handleLogin() {
         return;
     }
     if (!email || !password) {
-        loginError.textContent = "E-posta ve şifre gereklidir.";
+        (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "E-posta ve şifre gereklidir.";
         loginError.classList.remove('hidden');
         return;
     }
@@ -470,11 +553,22 @@ async function handleLogin() {
     loginButton.textContent = 'Giriş Yapılıyor...';
 
     try {
-        await db.signInWithEmail(email, password);
-        // onAuthStateChanged will handle routing to the correct dashboard
+        const userCredential = await db.signInWithEmail(email, password);
+        const user = userCredential.user;
+        
+        // Manual check for approval before proceeding
+        const userProfile = await db.getData('users', user.uid);
+        if (userProfile && userProfile.role === 'student' && !userProfile.approved) {
+             (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "Hesabınız henüz Dr. Ahmet Erdem tarafından onaylanmamıştır.";
+             loginError.classList.remove('hidden');
+             await db.signOut();
+             return;
+        }
+
+        // onAuthStateChanged will handle routing if successful
     } catch (error) {
         console.error("Login failed:", error);
-        loginError.textContent = getFirebaseAuthErrorMessage(error);
+        (loginError.querySelector('.login-error-text') as HTMLElement).textContent = getFirebaseAuthErrorMessage(error);
         loginError.classList.remove('hidden');
     } finally {
         loginButton.disabled = false;
@@ -494,17 +588,17 @@ async function handleRegister() {
         return;
     }
     if (!email || !password || !confirmPassword) {
-        registerError.textContent = "Tüm alanlar zorunludur.";
+        (registerError.querySelector('.register-error-text') as HTMLElement).textContent = "Tüm alanlar zorunludur.";
         registerError.classList.remove('hidden');
         return;
     }
     if (password !== confirmPassword) {
-        registerError.textContent = "Şifreler eşleşmiyor.";
+        (registerError.querySelector('.register-error-text') as HTMLElement).textContent = "Şifreler eşleşmiyor.";
         registerError.classList.remove('hidden');
         return;
     }
     if (email === 'teacher@admin.com') { // Prevent registration with teacher email
-        registerError.textContent = "Bu e-posta adresi yönetici için ayrılmıştır.";
+        (registerError.querySelector('.register-error-text') as HTMLElement).textContent = "Bu e-posta adresi yönetici için ayrılmıştır.";
         registerError.classList.remove('hidden');
         return;
     }
@@ -534,24 +628,25 @@ async function handleRegister() {
         await db.setData('registrationRequests', user.uid, newRequest);
 
 
-        registerSuccess.textContent = "Kayıt başarılı! Hesabınız öğretmen tarafından onaylandıktan sonra giriş yapabilirsiniz.";
+        (registerSuccess.querySelector('.register-success-text') as HTMLElement).textContent = "Kayıt talebiniz alındı! Dr. Ahmet Erdem hesabınızı onayladıktan sonra giriş yapabilirsiniz.";
         registerSuccess.classList.remove('hidden');
-        registerEmailInput.value = '';
-        registerPasswordInput.value = '';
-        registerConfirmPasswordInput.value = '';
         
         // Sign the user out immediately after registration
         await db.signOut();
-        setTimeout(() => toggleLoginViews('login'), 3000);
+        
+        // Auto switch to login view after 3 seconds
+        setTimeout(() => {
+            toggleLoginViews('login');
+        }, 4000);
 
 
     } catch (error) {
         console.error("Registration failed:", error);
-        registerError.textContent = getFirebaseAuthErrorMessage(error);
+        (registerError.querySelector('.register-error-text') as HTMLElement).textContent = getFirebaseAuthErrorMessage(error);
         registerError.classList.remove('hidden');
     } finally {
         registerButton.disabled = false;
-        registerButton.textContent = 'Kayıt Ol';
+        registerButton.textContent = 'Kayıt Talebi Gönder';
     }
 }
 
@@ -590,11 +685,14 @@ async function renderProblemSelection() {
 
 function createScenarioCard(scenario: Scenario): HTMLElement {
     const card = document.createElement('div');
-    card.className = 'bg-white/70 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-shadow duration-300 flex flex-col';
+    card.className = 'bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300 flex flex-col group';
     card.innerHTML = `
-        <h3 class="text-xl font-bold text-gray-800">${scenario.title}</h3>
-        <p class="text-gray-600 mt-2 flex-grow">${scenario.description}</p>
-        <button class="mt-4 w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg">
+        <div class="flex items-start justify-between mb-3">
+            <h3 class="text-lg font-bold text-gray-800 group-hover:text-teal-600 transition-colors">${scenario.title}</h3>
+            ${scenario.isCustom ? '<span class="px-2 py-1 bg-amber-100 text-amber-700 text-xs rounded-full">Özel</span>' : ''}
+        </div>
+        <p class="text-gray-600 text-sm mt-2 flex-grow leading-relaxed">${scenario.description}</p>
+        <button class="mt-5 w-full flex items-center justify-center rounded-lg h-10 px-6 bg-white border border-gray-200 text-gray-700 font-semibold hover:bg-teal-50 hover:text-teal-700 hover:border-teal-200 transition-all">
             <span>Simülasyonu Başlat</span>
         </button>
     `;
@@ -647,16 +745,24 @@ function addMessageToChat(container: HTMLElement, sender: 'therapist' | 'client'
     const isClient = sender === 'client';
     const isTeacher = sender === 'teacher';
 
-    messageElement.className = `flex flex-col animate-fade-in-up ${isTherapist ? 'items-start' : isClient ? 'items-end' : 'items-center w-full'}`;
+    messageElement.className = `flex flex-col animate-fade-in-up ${isTherapist ? 'items-end' : isClient ? 'items-start' : 'items-center w-full'}`;
     bubble.className = `chat-bubble ${isTherapist ? 'chat-bubble-therapist' : isClient ? 'chat-bubble-client' : 'chat-bubble-teacher'}`;
     bubble.textContent = text;
     
     messageElement.appendChild(bubble);
 
-    if (isTherapist && rationale && onRationaleClick) {
+    if (isClient && rationale && onRationaleClick) { // Rationale is usually for the AI's logic (Client role here from AI perspective) or Therapist suggestions
+        // In this app structure, rationale comes with AI response (Client).
+        // Wait, rationale usually explains why the AI chose that response OR critiques the user.
+        // Let's keep existing logic: AI returns rationale for its own behavior or feedback.
+    }
+
+    // Existing logic was slightly mixed. The AI returns rationale for the therapist's PREVIOUS move usually.
+    // Let's attach rationale button if provided.
+    if (rationale && onRationaleClick) {
         const rationaleButton = document.createElement('button');
-        rationaleButton.innerHTML = `<span class="material-symbols-outlined text-sm mr-1">lightbulb</span> Gerekçeyi Gör`;
-        rationaleButton.className = 'text-xs text-indigo-600 hover:underline mt-1 ml-2';
+        rationaleButton.innerHTML = `<span class="material-symbols-outlined text-sm mr-1">lightbulb</span> Analiz`;
+        rationaleButton.className = 'text-xs text-amber-600 hover:text-amber-800 hover:underline mt-1 ml-1 flex items-center';
         rationaleButton.onclick = () => onRationaleClick();
         messageElement.appendChild(rationaleButton);
     }
@@ -682,9 +788,7 @@ async function handleOptionSelection(therapistResponse: string, rationale: strin
 }
 
 async function handleTherapistResponse(therapistResponse: string, rationale: string | null = null) {
-    addMessageToChat(simulation.chatContainer, 'therapist', therapistResponse, rationale, () => {
-        if(rationale) showRationaleModal(rationale);
-    });
+    addMessageToChat(simulation.chatContainer, 'therapist', therapistResponse);
     chatHistory.push({ role: 'user', parts: [{ text: therapistResponse }] });
 
     const options = document.querySelectorAll('.option-button');
@@ -697,28 +801,38 @@ async function handleTherapistResponse(therapistResponse: string, rationale: str
 
 
 function updateSimulationUI(aiData: any) {
-    addMessageToChat(simulation.chatContainer, 'client', aiData.clientResponse);
+    addMessageToChat(simulation.chatContainer, 'client', aiData.clientResponse, aiData.rationale, () => showRationaleModal(aiData.rationale));
+    
     simulation.feedbackSection.classList.remove('hidden');
     simulation.feedbackText.textContent = aiData.feedback;
     updateScoreBars(aiData.scoring, aiData.clientImpact);
+    
     sessionScores.push({ scoring: aiData.scoring, clientImpact: aiData.clientImpact });
-    renderOptions(aiData.therapistOptions, aiData.rationale);
+    renderOptions(aiData.therapistOptions);
+    
     simulation.customResponseInput.disabled = false;
     simulation.sendCustomResponseButton.disabled = false;
+    
+    // Smooth scroll to bottom to show new options
+    setTimeout(() => {
+        simulation.chatContainer.scrollTop = simulation.chatContainer.scrollHeight;
+    }, 100);
 }
 
 function updateScoreBars(scoring: any, clientImpact: any) {
+    document.getElementById('val-empathy')!.textContent = scoring.empathy;
+    document.getElementById('val-technique')!.textContent = scoring.technique;
+    document.getElementById('val-relief')!.textContent = clientImpact.emotionalRelief;
+
     (document.getElementById('skill-empathy-bar') as HTMLElement).style.width = `${scoring.empathy * 10}%`;
     (document.getElementById('skill-technique-bar') as HTMLElement).style.width = `${scoring.technique * 10}%`;
-    (document.getElementById('skill-rapport-bar') as HTMLElement).style.width = `${scoring.rapport * 10}%`;
     (document.getElementById('impact-emotion-bar') as HTMLElement).style.width = `${clientImpact.emotionalRelief * 10}%`;
-    (document.getElementById('impact-cognition-bar') as HTMLElement).style.width = `${clientImpact.cognitiveClarity * 10}%`;
 }
 
 
 function showLoaderWithOptions(show: boolean, text: string = "Yükleniyor...") {
     if (show) {
-        simulation.optionsContainer.innerHTML = `<div class="col-span-1 md:col-span-2 flex items-center justify-center p-4 text-gray-600"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div><p class="ml-3">${text}</p></div>`;
+        simulation.optionsContainer.innerHTML = `<div class="col-span-1 md:col-span-2 flex items-center justify-center p-4 text-gray-500 gap-3"><div class="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600"></div><p class="text-sm font-medium animate-pulse">${text}</p></div>`;
     } else {
         simulation.optionsContainer.innerHTML = '';
     }
@@ -745,22 +859,34 @@ async function renderContinueSessionCard() {
     const savedSession = getSavedSession(); // Local session is temporary
     if (savedSession) {
         continueSessionCard.innerHTML = `
-            <span class="material-symbols-outlined text-5xl text-[var(--primary-color)] mb-3">play_circle</span>
-            <h3 class="text-xl font-bold text-gray-800">Kaldığın Yerden Devam Et</h3>
-            <p class="text-gray-600 mt-2 mb-4">"${savedSession.scenario.title}" simülasyonuna devam et.</p>
-            <div class="flex gap-2 w-full">
-                <button id="resume-session-button" class="flex-1 flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--primary-color)] text-white font-semibold hover:bg-indigo-700 transition-all duration-300 shadow-md hover:shadow-lg">Devam Et</button>
-                <button id="delete-session-button" class="flex items-center justify-center rounded-lg h-12 w-12 bg-red-100 text-red-600 hover:bg-red-200 transition-all duration-300 shadow-sm"><span class="material-symbols-outlined">delete</span></button>
+            <div class="flex items-center gap-4">
+                 <div class="bg-indigo-100 p-3 rounded-full text-indigo-600">
+                    <span class="material-symbols-outlined text-2xl">resume</span>
+                 </div>
+                 <div>
+                    <h3 class="text-lg font-bold text-gray-800">Devam Et: ${savedSession.scenario.title}</h3>
+                    <p class="text-sm text-gray-500">Kaldığınız yerden simülasyona dönün.</p>
+                 </div>
+            </div>
+            <div class="mt-4 flex gap-2 w-full">
+                <button id="resume-session-button" class="flex-1 rounded-lg h-9 bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-all text-sm shadow-sm">Simülasyona Dön</button>
+                <button id="delete-session-button" class="flex items-center justify-center rounded-lg h-9 w-9 bg-gray-100 text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all"><span class="material-symbols-outlined text-lg">delete</span></button>
             </div>
         `;
         document.getElementById('resume-session-button')!.addEventListener('click', resumeSession);
         document.getElementById('delete-session-button')!.addEventListener('click', deleteSavedSession);
     } else {
         continueSessionCard.innerHTML = `
-            <span class="material-symbols-outlined text-5xl text-[var(--secondary-color)] mb-3">add_circle</span>
-            <h3 class="text-xl font-bold text-gray-800">Yeni Simülasyon Başlat</h3>
-            <p class="text-gray-600 mt-2 mb-4">Yeni bir BDT senaryosuna başlayarak becerilerini geliştir.</p>
-            <button id="start-new-session-button" class="w-full flex items-center justify-center rounded-lg h-12 px-6 bg-[var(--secondary-color)] text-white font-semibold hover:bg-pink-600 transition-all duration-300 shadow-md hover:shadow-lg">Senaryo Seç</button>
+             <div class="flex items-center gap-4">
+                 <div class="bg-teal-100 p-3 rounded-full text-teal-600">
+                    <span class="material-symbols-outlined text-2xl">play_arrow</span>
+                 </div>
+                 <div>
+                    <h3 class="text-lg font-bold text-gray-800">Yeni Simülasyon</h3>
+                    <p class="text-sm text-gray-500">BDT becerilerinizi geliştirmek için pratik yapın.</p>
+                 </div>
+            </div>
+            <button id="start-new-session-button" class="mt-4 w-full rounded-lg h-9 bg-white border border-gray-300 text-gray-700 font-medium hover:bg-teal-50 hover:text-teal-700 hover:border-teal-200 transition-all text-sm">Senaryo Seç</button>
         `;
         document.getElementById('start-new-session-button')!.addEventListener('click', () => showScreen('problemSelection'));
     }
@@ -772,7 +898,7 @@ function renderProgressTracking() {
         progressTracking.card.classList.remove('hidden');
         progressTracking.container.innerHTML = createChartHTML(calculateAverageScores(sessionScores));
     } else {
-        progressTracking.card.classList.add('hidden');
+        // progressTracking.card.classList.add('hidden'); // Keep visible but empty state handled in HTML
     }
 }
 
@@ -790,19 +916,17 @@ async function renderCumulativeProgress() {
             return;
         }
     }
-     cumulativeProgress.card.classList.add('hidden');
+     // Keep empty state
 }
 
 function createChartHTML(scores: any): string {
     return `
-        <div class="space-y-2">
-            <h5 class="font-semibold text-sm text-gray-700">Terapist Becerileri</h5>
-            ${createBar('Empati', scores.empathy, 'fuchsia')}
-            ${createBar('BDT Tekniği', scores.technique, 'amber')}
-            ${createBar('İlişki Kurma', scores.rapport, 'teal')}
-            <h5 class="font-semibold text-sm text-gray-700 mt-3">Danışan Etkisi</h5>
-            ${createBar('Duygusal Rahatlama', scores.emotionalRelief, 'green')}
-            ${createBar('Bilişsel Netlik', scores.cognitiveClarity, 'blue')}
+        <div class="space-y-3">
+            ${createBar('Empati & Anlayış', scores.empathy, 'fuchsia')}
+            ${createBar('Teknik Yeterlilik', scores.technique, 'amber')}
+            ${createBar('Terapötik İttifak', scores.rapport, 'teal')}
+            <div class="h-px bg-gray-100 my-2"></div>
+            ${createBar('Danışan Faydası', scores.emotionalRelief, 'green')}
         </div>
     `;
 }
@@ -813,10 +937,10 @@ function createBar(label: string, value: number, color: string): string {
         <div class="w-full">
             <div class="flex justify-between items-center mb-1">
                 <span class="text-xs font-medium text-gray-500">${label}</span>
-                <span class="text-xs font-bold text-gray-600">${value.toFixed(1)}/10</span>
+                <span class="text-xs font-bold text-gray-700">${value.toFixed(1)}/10</span>
             </div>
-            <div class="h-3 bg-gray-200 rounded-full">
-                <div class="h-3 rounded-full bg-${color}-400 chart-bar" style="width: ${percentage}%;"></div>
+            <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="h-full rounded-full bg-${color}-500 chart-bar" style="width: ${percentage}%;"></div>
             </div>
         </div>
     `;
@@ -825,15 +949,16 @@ function createBar(label: string, value: number, color: string): string {
 
 function renderAchievements() {
     achievements.container.innerHTML = `
-        <div class="flex flex-col items-center text-gray-400 opacity-60" title="İlk simülasyonunu tamamla"><span class="material-symbols-outlined text-5xl">workspace_premium</span><span class="text-xs mt-1">İlk Adım</span></div>
-        <div class="flex flex-col items-center text-gray-400 opacity-60" title="5 simülasyon tamamla"><span class="material-symbols-outlined text-5xl">military_tech</span><span class="text-xs mt-1">Azimli</span></div>
-        <div class="flex flex-col items-center text-gray-400 opacity-60" title="Empati puanını 8'in üzerine çıkar"><span class="material-symbols-outlined text-5xl">psychology</span><span class="text-xs mt-1">Empati Ustası</span></div>
+        <div class="flex flex-col items-center p-2 rounded-lg bg-gray-50 border border-gray-100" title="İlk simülasyonunu tamamla"><span class="material-symbols-outlined text-3xl text-gray-400">workspace_premium</span><span class="text-[10px] mt-1 text-gray-500 font-medium">İlk Adım</span></div>
+        <div class="flex flex-col items-center p-2 rounded-lg bg-gray-50 border border-gray-100" title="5 simülasyon tamamla"><span class="material-symbols-outlined text-3xl text-gray-400">military_tech</span><span class="text-[10px] mt-1 text-gray-500 font-medium">İstikrarlı</span></div>
+        <div class="flex flex-col items-center p-2 rounded-lg bg-gray-50 border border-gray-100" title="Empati puanını 8'in üzerine çıkar"><span class="material-symbols-outlined text-3xl text-gray-400">psychology</span><span class="text-[10px] mt-1 text-gray-500 font-medium">Empatik</span></div>
     `;
+    // Logic to colorize based on actual stats would go here
 }
 
 async function renderRecommendations() {
     if (!isDbConnected) {
-        recommendations.container.innerHTML = '<p class="text-gray-500 text-center">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        recommendations.container.innerHTML = '<p class="text-gray-400 text-xs text-center">Bağlantı yok.</p>';
         return;
     }
     recommendations.container.innerHTML = '';
@@ -841,7 +966,7 @@ async function renderRecommendations() {
     const uniqueScenarioIds = [...new Set(allSessions.map(s => s.scenario.id))];
 
     if (uniqueScenarioIds.length === 0) {
-        recommendations.container.innerHTML = '<p class="text-gray-500 text-center">Simülasyonları tamamladıkça burada kişiselleştirilmiş kaynak önerileri göreceksiniz.</p>';
+        recommendations.container.innerHTML = '<p class="text-gray-400 text-sm italic">Simülasyon tamamladıkça öneriler burada görünecek.</p>';
         return;
     }
     
@@ -849,42 +974,66 @@ async function renderRecommendations() {
     const relevantResources = allResources.filter(r => r.associatedScenarioIds.some((id: string) => uniqueScenarioIds.includes(id)));
     
     if (relevantResources.length > 0) {
-         relevantResources.forEach(resource => {
+         relevantResources.slice(0, 3).forEach(resource => {
             const resourceCard = `
-                <a href="${resource.url}" target="_blank" class="block bg-white/50 p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300">
-                    <div class="flex items-center gap-3">
-                        <span class="material-symbols-outlined text-2xl text-cyan-600">${resource.type === 'video' ? 'movie' : resource.type === 'pdf' ? 'picture_as_pdf' : 'article'}</span>
+                <a href="${resource.url}" target="_blank" class="block bg-white p-3 rounded-lg border border-gray-100 hover:border-teal-200 hover:shadow-sm transition-all group">
+                    <div class="flex items-start gap-3">
+                        <div class="bg-gray-50 p-1.5 rounded text-gray-500 group-hover:text-teal-600 group-hover:bg-teal-50 transition-colors">
+                            <span class="material-symbols-outlined text-xl">${resource.type === 'video' ? 'movie' : resource.type === 'pdf' ? 'picture_as_pdf' : 'article'}</span>
+                        </div>
                         <div>
-                            <h4 class="font-semibold text-gray-800">${resource.title}</h4>
-                            <p class="text-sm text-gray-600 capitalize">${resource.type}</p>
+                            <h4 class="font-semibold text-gray-800 text-sm group-hover:text-teal-700 transition-colors">${resource.title}</h4>
+                            <p class="text-xs text-gray-500 capitalize mt-0.5">${resource.type} • Tıklayıp İncele</p>
                         </div>
                     </div>
                 </a>`;
             recommendations.container.innerHTML += resourceCard;
         });
     } else {
-        recommendations.container.innerHTML = '<p class="text-gray-500 text-center">Tamamladığınız senaryolarla ilişkili ek kaynak bulunamadı.</p>';
+        recommendations.container.innerHTML = '<p class="text-gray-400 text-sm italic">Şu an için yeni bir öneri bulunmuyor.</p>';
     }
 }
 
 async function renderQACard() {
     if (!isDbConnected) {
-        teacherQASystem.history.innerHTML = '<p class="text-center text-gray-500 text-sm">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        teacherQASystem.history.innerHTML = '<p class="text-center text-gray-500 text-sm">Bağlantı gerekli.</p>';
         return;
     }
     const qaHistory = await getQAsForStudent(currentUserId);
     teacherQASystem.history.innerHTML = '';
     if (qaHistory.length === 0) {
-        teacherQASystem.history.innerHTML = '<p class="text-center text-gray-500 text-sm">Henüz bir soru sormadınız. Öğretmeninize danışmak istediğiniz bir konu var mı?</p>';
+        teacherQASystem.history.innerHTML = `
+            <div class="h-full flex flex-col items-center justify-center text-center p-4">
+                <span class="material-symbols-outlined text-4xl text-gray-300 mb-2">forum</span>
+                <p class="text-gray-500 text-sm">Aklınıza takılan soruları buradan Dr. Ahmet Erdem'e iletebilirsiniz.</p>
+            </div>`;
     } else {
         qaHistory.forEach(qa => {
-            teacherQASystem.history.innerHTML += `<div class="chat-bubble chat-bubble-therapist !max-w-full !rounded-xl">${qa.question}</div>`;
+            teacherQASystem.history.innerHTML += `
+                <div class="flex flex-col items-end mb-4">
+                    <div class="bg-slate-200 text-slate-800 rounded-2xl rounded-tr-sm py-2 px-3 max-w-[90%] text-sm">
+                        ${qa.question}
+                    </div>
+                    <span class="text-[10px] text-gray-400 mt-1 mr-1">Siz</span>
+                </div>
+            `;
             if (qa.answer) {
-                teacherQASystem.history.innerHTML += `<div class="chat-bubble chat-bubble-teacher !max-w-full mt-2">${qa.answer}</div>`;
+                teacherQASystem.history.innerHTML += `
+                    <div class="flex flex-col items-start mb-4">
+                         <div class="flex items-center gap-2 mb-1 ml-1">
+                             <span class="bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 rounded">Dr. Erdem</span>
+                         </div>
+                        <div class="bg-white border border-gray-200 text-gray-700 rounded-2xl rounded-tl-sm py-2 px-3 max-w-[90%] text-sm shadow-sm">
+                            ${qa.answer}
+                        </div>
+                    </div>
+                `;
             } else {
-                 teacherQASystem.history.innerHTML += `<div class="text-xs text-gray-500 italic text-center mt-1">Öğretmen yanıtı bekleniyor...</div>`;
+                 teacherQASystem.history.innerHTML += `<div class="text-xs text-gray-400 italic text-center my-2 flex items-center justify-center gap-1"><span class="w-1 h-1 bg-gray-400 rounded-full animate-pulse"></span> Yanıt bekleniyor</div>`;
             }
         });
+         // Scroll to bottom
+         teacherQASystem.history.scrollTop = teacherQASystem.history.scrollHeight;
     }
 }
 
@@ -919,13 +1068,8 @@ function resumeSession() {
 
         chatHistory.forEach(turn => {
             if (turn.role === 'user') {
-                 try {
-                    const lastModelTurn = chatHistory[chatHistory.indexOf(turn) - 1];
-                    const lastModelResponse = JSON.parse(lastModelTurn.parts[0].text);
-                    addMessageToChat(simulation.chatContainer,'therapist', turn.parts[0].text, lastModelResponse.rationale, () => showRationaleModal(lastModelResponse.rationale));
-                } catch(e) {
-                    addMessageToChat(simulation.chatContainer,'therapist', turn.parts[0].text);
-                }
+                 // Try to find previous model response for rationale... complicate re-hydration logic omitted for brevity in resume
+                addMessageToChat(simulation.chatContainer,'therapist', turn.parts[0].text);
             } else if (turn.role === 'model') {
                  try {
                     const modelResponse = JSON.parse(turn.parts[0].text);
@@ -940,15 +1084,14 @@ function resumeSession() {
             updateSimulationUI(lastModelResponse);
         } catch (e) {
             console.error("Failed to parse last model response on session resume:", e);
-            simulation.optionsContainer.innerHTML = `<p class="text-red-500 col-span-2 text-center">Kaydedilmiş seans yüklenirken bir hata oluştu. Lütfen seansı silip baştan başlayın.</p>`;
-            showNotification("Kaydedilmiş seans verisi bozuk.", "error");
+            simulation.optionsContainer.innerHTML = `<p class="text-red-500 col-span-2 text-center text-sm">Veri hatası. Lütfen yeniden başlayın.</p>`;
         }
     }
 }
 
 function deleteSavedSession() {
     localStorage.removeItem(`session_${currentUserId}`);
-    showNotification("Kaydedilen seans silindi.", "info");
+    showNotification("Taslak seans silindi.", "info");
     renderContinueSessionCard();
 }
 
@@ -990,12 +1133,16 @@ async function handleAnalyzeTranscript() {
     }
     const transcript = analysis.transcriptInput.value;
     if (!transcript.trim()) {
-        showNotification("Lütfen analiz için bir transkript girin.", "error");
+        showNotification("Lütfen analiz için bir metin girin.", "error");
         return;
     }
     analysis.analyzeButton.disabled = true;
     analysis.analyzeButton.innerHTML = `<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> Analiz Ediliyor...`;
-    analysis.output.innerHTML = '<p>Yapay zeka transkripti analiz ediyor, bu işlem biraz zaman alabilir...</p>';
+    analysis.output.innerHTML = `
+        <div class="flex flex-col items-center justify-center h-full space-y-3">
+            <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-teal-500"></div>
+            <p class="text-gray-500 text-sm animate-pulse">Yapay zeka transkripti inceliyor...</p>
+        </div>`;
 
     try {
         const response = await generateContentWithRetry({
@@ -1039,21 +1186,24 @@ async function handleAnalyzeTranscript() {
 
     } catch (error) {
         console.error("Analysis Error:", error);
-        analysis.output.innerHTML = `<p class="text-red-500">Analiz sırasında bir hata oluştu. Lütfen tekrar deneyin.</p>`;
+        analysis.output.innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-lg text-sm">Analiz sırasında bir hata oluştu. Lütfen tekrar deneyin.</div>`;
         showNotification("Analiz başarısız oldu.", "error");
     } finally {
         analysis.analyzeButton.disabled = false;
-        analysis.analyzeButton.innerHTML = `<span class="material-symbols-outlined mr-2">psychology</span><span>Yapay Zeka ile Analiz Et</span>`;
+        analysis.analyzeButton.innerHTML = `<span class="material-symbols-outlined mr-2">analytics</span><span>Yapay Zeka Analizini Başlat</span>`;
     }
 }
 
 function renderAnalysisOutput(data: any, container: HTMLElement = analysis.output) {
-    let html = `<h3>Genel Özet</h3><p>${data.overallSummary}</p>`;
-    html += `<h3>Güçlü Yönler</h3><ul>${data.strengths.map((s: string) => `<li>${s}</li>`).join('')}</ul>`;
-    html += `<h3>Geliştirilecek Alanlar</h3><ul>${data.areasForImprovement.map((s: string) => `<li>${s}</li>`).join('')}</ul>`;
-    html += `<h3>Kritik Anlar Analizi</h3>`;
+    let html = `<h3 class="text-lg font-bold text-gray-800 mb-2">Genel Özet</h3><p class="mb-4 text-gray-600">${data.overallSummary}</p>`;
+    
+    html += `<h3 class="text-lg font-bold text-teal-700 mb-2 flex items-center gap-2"><span class="material-symbols-outlined">thumb_up</span> Güçlü Yönler</h3><ul class="list-disc pl-5 mb-4 space-y-1 text-gray-600">${data.strengths.map((s: string) => `<li>${s}</li>`).join('')}</ul>`;
+    
+    html += `<h3 class="text-lg font-bold text-amber-700 mb-2 flex items-center gap-2"><span class="material-symbols-outlined">construction</span> Geliştirilecek Alanlar</h3><ul class="list-disc pl-5 mb-4 space-y-1 text-gray-600">${data.areasForImprovement.map((s: string) => `<li>${s}</li>`).join('')}</ul>`;
+    
+    html += `<h3 class="text-lg font-bold text-gray-800 mb-2">Kritik Anlar</h3>`;
     data.keyMomentsAnalysis.forEach((moment: any) => {
-        html += `<h4>${moment.moment}</h4><p>${moment.analysis}</p>`;
+        html += `<div class="bg-white border-l-4 border-indigo-500 p-3 mb-3 shadow-sm"><h4 class="font-semibold text-gray-800 text-sm mb-1">${moment.moment}</h4><p class="text-sm text-gray-600">${moment.analysis}</p></div>`;
     });
     container.innerHTML = html;
 }
@@ -1079,9 +1229,9 @@ async function handleSendAnalysisToTeacher() {
     };
     
     await db.setData('uploads', uploadId, uploadData);
-    showNotification("Analiz başarıyla öğretmene gönderildi!", "success");
+    showNotification("Rapor başarıyla Dr. Ahmet Erdem'e iletildi!", "success");
     analysis.sendButton.classList.add('hidden');
-    currentAnalysisCache = null;
+    // Don't clear cache immediately so user sees what they sent
 }
 
 // --- Student-Teacher Communication ---
@@ -1107,7 +1257,7 @@ async function handleStudentQuestion() {
     await db.setData('qas', qaId, qaData);
     teacherQASystem.input.value = '';
     await renderQACard();
-    showNotification("Sorunuz öğretmene iletildi.", "success");
+    showNotification("Sorunuz iletildi.", "success");
 }
 
 async function getQAsForStudent(studentId: string) {
@@ -1155,11 +1305,11 @@ function calculateAverageScores(scores: any[]) {
 }
 
 function showNotification(message: string, type: 'success' | 'error' | 'info') {
-    const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500' };
+    const colors = { success: 'bg-green-600', error: 'bg-red-600', info: 'bg-teal-600' };
     const icon = { success: 'check_circle', error: 'error', info: 'info' };
     const notification = document.createElement('div');
-    notification.className = `flex items-center gap-3 ${colors[type]} text-white p-4 rounded-lg shadow-lg animate-fade-in-up`;
-    notification.innerHTML = `<span class="material-symbols-outlined">${icon[type]}</span><p>${message}</p>`;
+    notification.className = `flex items-center gap-3 ${colors[type]} text-white py-3 px-4 rounded-lg shadow-lg animate-fade-in-up border border-white/20`;
+    notification.innerHTML = `<span class="material-symbols-outlined text-xl">${icon[type]}</span><p class="text-sm font-medium">${message}</p>`;
     notificationContainer.appendChild(notification);
     setTimeout(() => {
         notification.style.opacity = '0';
@@ -1187,7 +1337,7 @@ async function generateContentWithRetry(params: any, retries = 3) {
 }
 
 async function getAiResponse(history: any[], currentScenario: Scenario) {
-    showLoaderWithOptions(true, "Yapay zeka düşünüyor...");
+    showLoaderWithOptions(true, "Elif düşünüyor...");
     const cleanHistory = history.map(turn => {
         if (turn.role === 'model') {
              try {
@@ -1240,7 +1390,7 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
     } catch (error) {
         console.error("AI Response Error:", error);
         showLoaderWithOptions(false);
-        simulation.optionsContainer.innerHTML = '<p class="text-red-500 col-span-2 text-center">Yapay zeka yanıt verirken bir hata oluştu. Lütfen sayfayı yenileyip tekrar deneyin.</p>';
+        simulation.optionsContainer.innerHTML = '<p class="text-red-500 col-span-2 text-center text-sm">Yapay zeka yanıt verirken bir hata oluştu. Lütfen tekrar deneyin.</p>';
         showNotification("AI yanıt hatası.", "error");
     } 
 }
@@ -1274,7 +1424,7 @@ async function handleApproveRequest(uidToApprove: string) {
 
 async function renderRegistrationRequests() {
     if (!isDbConnected) {
-        requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Bağlantı gerekli.</p>';
         return;
     }
     // Fetch directly from the dedicated requests collection for stability
@@ -1282,7 +1432,7 @@ async function renderRegistrationRequests() {
 
     requestsListContainer.innerHTML = '';
     if (pendingRequests.length === 0) {
-        requestsListContainer.innerHTML = '<p class="text-center text-gray-500">Onay bekleyen öğrenci kaydı bulunmuyor.</p>';
+        requestsListContainer.innerHTML = '<p class="text-center text-gray-500 italic text-sm py-4">Bekleyen kayıt isteği yok.</p>';
         return;
     }
 
@@ -1290,11 +1440,17 @@ async function renderRegistrationRequests() {
 
     pendingRequests.forEach((request: any) => {
         const requestElement = document.createElement('div');
-        requestElement.className = 'flex items-center justify-between bg-white p-4 rounded-lg shadow-sm';
+        requestElement.className = 'flex items-center justify-between bg-white p-4 rounded-lg shadow-sm border border-gray-100 hover:shadow-md transition-shadow';
         requestElement.innerHTML = `
-            <div><p class="font-semibold text-gray-800">${request.email}</p><p class="text-sm text-gray-500">Kayıt Tarihi: ${new Date(request.timestamp).toLocaleString('tr-TR')}</p></div>
-            <button data-uid="${request.uid}" class="approve-button flex items-center justify-center rounded-lg h-10 px-4 bg-green-500 text-white font-semibold hover:bg-green-600 transition-all duration-300 shadow-sm hover:shadow-md">
-                <span class="material-symbols-outlined mr-2">check_circle</span><span>Onayla</span>
+            <div class="flex items-center gap-3">
+                 <div class="bg-gray-100 p-2 rounded-full"><span class="material-symbols-outlined text-gray-500">person_add</span></div>
+                 <div>
+                    <p class="font-bold text-gray-800 text-sm">${request.email}</p>
+                    <p class="text-xs text-gray-500">Tarih: ${new Date(request.timestamp).toLocaleString('tr-TR')}</p>
+                 </div>
+            </div>
+            <button data-uid="${request.uid}" class="approve-button flex items-center justify-center rounded-lg h-9 px-4 bg-green-600 text-white font-semibold hover:bg-green-700 transition-all shadow-sm text-sm">
+                <span class="material-symbols-outlined text-lg mr-1.5">check_circle</span><span>Onayla</span>
             </button>
         `;
         requestsListContainer.appendChild(requestElement);
@@ -1307,14 +1463,20 @@ function renderSettingsTab() {
     const maskedKey = currentKey ? `•••••••••••••••••••••••••••••••${currentKey.slice(-4)}` : "Henüz ayarlanmadı.";
     
     teacherDashboard.contents.settings.innerHTML = `
-        <div class="max-w-xl mx-auto">
-            <div class="bg-white/70 p-6 rounded-2xl shadow-xl">
-                <div class="flex items-center gap-3 mb-4"><span class="material-symbols-outlined text-4xl text-indigo-500">psychology</span><div><h3 class="text-2xl font-bold text-gray-800">Yapay Zeka Ayarları</h3><p class="text-gray-500">Gemini AI sistemini yapılandırın.</p></div></div>
-                <div class="mt-6 border-t pt-6">
-                    <label for="teacher-api-key-input" class="block text-sm font-medium text-gray-700">Gemini API Anahtarı</label>
-                    <p class="text-xs text-gray-500 mb-2">Mevcut Anahtar: <span class="font-mono">${maskedKey}</span></p>
-                    <input type="password" id="teacher-api-key-input" class="mt-1 block w-full rounded-lg" placeholder="Yeni API anahtarını buraya girin...">
-                    <button id="teacher-save-api-key-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-12 bg-indigo-500 text-white font-semibold hover:bg-indigo-600"><span>API Anahtarını Kaydet</span></button>
+        <div class="max-w-2xl mx-auto space-y-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="bg-indigo-100 p-2 rounded-full"><span class="material-symbols-outlined text-indigo-600 text-2xl">psychology</span></div>
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800">Yapay Zeka Yapılandırması</h3>
+                        <p class="text-sm text-gray-500">Gemini modelini etkinleştirmek için anahtarınızı girin.</p>
+                    </div>
+                </div>
+                <div>
+                    <label for="teacher-api-key-input" class="block text-sm font-medium text-gray-700 mb-1">Gemini API Anahtarı</label>
+                    <p class="text-xs text-gray-500 mb-2 font-mono bg-gray-50 p-1 inline-block rounded">Aktif: ${maskedKey}</p>
+                    <input type="password" id="teacher-api-key-input" class="block w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="AI Studio anahtarınızı buraya yapıştırın...">
+                    <button id="teacher-save-api-key-button" class="mt-4 w-full flex items-center justify-center rounded-lg h-10 bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition-colors">Anahtarı Kaydet</button>
                 </div>
             </div>
         </div>`;
@@ -1327,11 +1489,11 @@ function renderSettingsTab() {
             return;
         }
         if (initializeAiClient(newKey)) {
-            showNotification("API anahtarı başarıyla güncellendi ve sistem aktif!", "success");
+            showNotification("Sistem başarıyla etkinleştirildi!", "success");
             input.value = "";
             renderSettingsTab();
         } else {
-            showNotification("API anahtarı geçersiz. Lütfen kontrol edip tekrar girin.", "error");
+            showNotification("Geçersiz anahtar formatı.", "error");
         }
     });
 }
@@ -1339,27 +1501,33 @@ function renderSettingsTab() {
 // New Teacher Dashboard Functions
 async function renderStudentSimulationsList() {
     const container = teacherDashboard.contents.simulations;
-    container.innerHTML = `<h3 class="text-xl font-bold text-gray-800 mb-4">Öğrenci Simülasyonları</h3>`;
+    container.innerHTML = `<h3 class="text-lg font-bold text-gray-800 mb-4">Öğrenci Listesi</h3>`;
     if (!isDbConnected) {
-        container.innerHTML += '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        container.innerHTML += '<p class="text-center text-gray-500">Bağlantı gerekli.</p>';
         return;
     }
     const students = await db.getCollectionWhere('users', 'approved', '==', true);
     if (students.length === 0) {
-        container.innerHTML += '<p class="text-center text-gray-500">İncelenecek öğrencisi olan simülasyon bulunmuyor.</p>';
+        container.innerHTML += '<p class="text-center text-gray-500 text-sm">Sisteme kayıtlı öğrenci bulunmuyor.</p>';
         return;
     }
     const studentList = document.createElement('div');
-    studentList.className = 'space-y-3';
+    studentList.className = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4';
     students.forEach(student => {
         // Exclude teacher from this list
         if (student.role === 'teacher') return;
 
         studentList.innerHTML += `
-            <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
-                <p class="font-semibold text-gray-800">${student.email}</p>
-                <button data-studentid="${student.id}" class="view-sessions-button flex items-center justify-center rounded-lg h-10 px-4 bg-[var(--teacher-color)] text-white font-semibold hover:bg-amber-600 transition-all">
-                    <span>Seansları Görüntüle</span><span class="material-symbols-outlined ml-2">arrow_forward</span>
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                     <div class="bg-teal-50 text-teal-700 rounded-full w-10 h-10 flex items-center justify-center font-bold text-lg">${student.email[0].toUpperCase()}</div>
+                     <div class="overflow-hidden">
+                        <p class="font-semibold text-gray-800 text-sm truncate w-32 md:w-auto" title="${student.email}">${student.email}</p>
+                        <p class="text-xs text-gray-400">Öğrenci</p>
+                     </div>
+                </div>
+                <button data-studentid="${student.id}" class="view-sessions-button flex-shrink-0 rounded-lg p-2 bg-gray-50 text-gray-600 hover:bg-teal-50 hover:text-teal-600 transition-colors">
+                    <span class="material-symbols-outlined">arrow_forward_ios</span>
                 </button>
             </div>`;
     });
@@ -1378,19 +1546,22 @@ async function showStudentSessionReviewList(studentId: string) {
     const sessions = await getAllSessionsForStudent(studentId);
     teacherReview.sessionListContainer.innerHTML = '';
     if (sessions.length === 0) {
-        teacherReview.sessionListContainer.innerHTML = '<p class="text-center text-gray-500">Bu öğrencinin tamamlanmış seansı bulunmuyor.</p>';
+        teacherReview.sessionListContainer.innerHTML = '<p class="text-center text-gray-400 col-span-2 py-8">Bu öğrenci henüz bir simülasyon tamamlamadı.</p>';
         return;
     }
     sessions.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // newest first
     sessions.forEach(session => {
         teacherReview.sessionListContainer.innerHTML += `
-            <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
-                <div>
-                    <p class="font-semibold text-gray-800">${session.scenario.title}</p>
-                    <p class="text-sm text-gray-500">${new Date(session.timestamp).toLocaleString('tr-TR')}</p>
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between h-full">
+                <div class="mb-4">
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="bg-indigo-50 text-indigo-700 text-xs font-bold px-2 py-1 rounded-full">Simülasyon</span>
+                        <span class="text-xs text-gray-400">${new Date(session.timestamp).toLocaleDateString('tr-TR')}</span>
+                    </div>
+                    <p class="font-bold text-gray-800">${session.scenario.title}</p>
                 </div>
-                <button data-studentid="${studentId}" data-sessionid="${session.id}" class="review-session-button flex items-center justify-center rounded-lg h-10 px-4 bg-indigo-500 text-white font-semibold hover:bg-indigo-600">
-                    <span>İncele</span>
+                <button data-studentid="${studentId}" data-sessionid="${session.id}" class="review-session-button w-full flex items-center justify-center rounded-lg h-9 bg-white border border-gray-200 text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-all text-sm font-medium">
+                    İncele
                 </button>
             </div>`;
     });
@@ -1428,9 +1599,9 @@ async function showSessionDetailReview(studentId: string, sessionId: string) {
     
     teacherReview.feedbackInput.value = session.feedback || '';
     if (session.feedback) {
-        teacherReview.existingFeedback.innerHTML = `<h5 class="font-semibold text-sm text-gray-700 mb-2">Mevcut Geri Bildiriminiz:</h5><p class="text-sm p-3 bg-amber-50 rounded-lg">${session.feedback}</p>`;
+        teacherReview.existingFeedback.innerHTML = session.feedback;
     } else {
-        teacherReview.existingFeedback.innerHTML = '';
+        teacherReview.existingFeedback.innerHTML = 'Henüz not eklenmedi.';
     }
 }
 
@@ -1445,32 +1616,35 @@ async function handleSubmitSessionFeedback() {
     await db.updateDataInSubcollection('students', reviewingStudentId, 'sessions', reviewingSessionId, feedbackData);
     
     showNotification("Geri bildirim başarıyla kaydedildi!", "success");
-    await showSessionDetailReview(reviewingStudentId, reviewingSessionId); // Refresh view
+    teacherReview.existingFeedback.textContent = feedbackText;
 }
 
 
 async function renderUploadedAnalysesList() {
     const container = teacherDashboard.contents.uploads.querySelector('#uploads-list-container')!;
     if (!isDbConnected) {
-        container.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        container.innerHTML = '<p class="text-center text-gray-500">Bağlantı gerekli.</p>';
         return;
     }
     const uploads = await db.getCollection('uploads');
     container.innerHTML = '';
     if (uploads.length === 0) {
-        container.innerHTML = '<p class="text-center text-gray-500">Öğrenciler tarafından yüklenmiş seans bulunmuyor.</p>';
+        container.innerHTML = '<p class="text-center text-gray-400 py-6">İncelenecek döküman bulunmuyor.</p>';
         return;
     }
     uploads.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // newest first
     uploads.forEach(upload => {
         container.innerHTML += `
-            <div class="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm">
-                <div>
-                    <p class="font-semibold text-gray-800">Öğrenci: ${upload.studentEmail || upload.studentId}</p>
-                    <p class="text-sm text-gray-500">${new Date(upload.timestamp).toLocaleString('tr-TR')}</p>
+            <div class="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <div class="flex items-center gap-4">
+                    <div class="bg-teal-50 p-2.5 rounded-lg text-teal-600"><span class="material-symbols-outlined">description</span></div>
+                    <div>
+                        <p class="font-bold text-gray-800 text-sm">${upload.studentEmail || upload.studentId}</p>
+                        <p class="text-xs text-gray-500">${new Date(upload.timestamp).toLocaleString('tr-TR')}</p>
+                    </div>
                 </div>
-                <button data-uploadid="${upload.id}" class="review-upload-button flex items-center justify-center rounded-lg h-10 px-4 bg-teal-500 text-white font-semibold hover:bg-teal-600">
-                    <span>İncele</span>
+                <button data-uploadid="${upload.id}" class="review-upload-button flex items-center justify-center rounded-lg h-9 px-4 bg-teal-600 text-white hover:bg-teal-700 transition-colors text-sm font-medium shadow-sm">
+                    İncele
                 </button>
             </div>`;
     });
@@ -1488,9 +1662,11 @@ async function showUploadReviewDetail(uploadId: string) {
 
     teacherUploadReview.feedbackInput.value = upload.feedback || '';
      if (upload.feedback) {
-        teacherUploadReview.existingFeedback.innerHTML = `<h5 class="font-semibold text-sm text-gray-700 mb-2">Mevcut Geri Bildiriminiz:</h5><p class="text-sm p-3 bg-amber-50 rounded-lg">${upload.feedback}</p>`;
+        teacherUploadReview.existingFeedback.innerHTML = upload.feedback;
+        teacherUploadReview.existingFeedback.parentElement!.classList.remove('hidden');
     } else {
         teacherUploadReview.existingFeedback.innerHTML = '';
+        teacherUploadReview.existingFeedback.parentElement!.classList.add('hidden');
     }
 }
 
@@ -1501,35 +1677,46 @@ async function handleSubmitUploadFeedback() {
         return;
     }
     await db.updateData('uploads', reviewingUploadId, { feedback: feedbackText });
-    showNotification("Geri bildirim başarıyla kaydedildi!", "success");
+    showNotification("Geri bildirim kaydedildi.", "success");
     await showUploadReviewDetail(reviewingUploadId); // Refresh view
 }
 
 async function renderStudentQuestions() {
     const container = teacherDashboard.contents.questions.querySelector('#questions-list-container')!;
     if (!isDbConnected) {
-        container.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        container.innerHTML = '<p class="text-center text-gray-500">Bağlantı gerekli.</p>';
         return;
     }
     const questions = await db.getCollection('qas');
     container.innerHTML = '';
     if (questions.length === 0) {
-        container.innerHTML = '<p class="text-center text-gray-500">Henüz öğrenci sorusu bulunmuyor.</p>';
+        container.innerHTML = '<p class="text-center text-gray-400 py-6">Bekleyen soru yok.</p>';
         return;
     }
     questions.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // newest first
     questions.forEach(qa => {
         container.innerHTML += `
-            <div class="bg-white p-4 rounded-lg shadow-sm">
-                <div class="flex justify-between items-start">
-                    <p class="text-sm text-gray-500">Öğrenci: <span class="font-bold text-gray-700">${qa.studentEmail || qa.studentId}</span></p>
-                    <p class="text-xs text-gray-400">${new Date(qa.timestamp).toLocaleString('tr-TR')}</p>
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+                <div class="flex justify-between items-start mb-3">
+                    <div class="flex items-center gap-2">
+                        <div class="bg-slate-100 p-1 rounded text-slate-500"><span class="material-symbols-outlined text-lg">person</span></div>
+                        <span class="font-bold text-gray-700 text-sm">${qa.studentEmail || qa.studentId}</span>
+                    </div>
+                    <span class="text-xs text-gray-400">${new Date(qa.timestamp).toLocaleString('tr-TR')}</span>
                 </div>
-                <p class="mt-2 p-3 bg-gray-50 rounded-md">${qa.question}</p>
-                <div class="mt-3">
+                <div class="bg-gray-50 p-3 rounded-lg text-sm text-gray-700 mb-4 border border-gray-100">
+                    ${qa.question}
+                </div>
+                <div>
                     ${qa.answer ? 
-                        `<p class="text-sm font-semibold text-amber-700">Sizin Yanıtınız:</p><p class="p-3 bg-amber-50 rounded-md text-sm">${qa.answer}</p>` :
-                        `<div class="flex gap-2"><textarea id="reply-input-${qa.id}" class="flex-grow rounded-lg border-gray-300 text-sm" placeholder="Yanıtınızı buraya yazın..."></textarea><button data-questionid="${qa.id}" class="reply-question-button rounded-lg px-4 bg-green-500 text-white font-semibold hover:bg-green-600">Yanıtla</button></div>`
+                        `<div class="pl-4 border-l-2 border-amber-400">
+                            <p class="text-xs font-bold text-amber-700 mb-1">Yanıtınız:</p>
+                            <p class="text-sm text-gray-600">${qa.answer}</p>
+                         </div>` :
+                        `<div class="flex gap-2">
+                            <textarea id="reply-input-${qa.id}" class="flex-grow rounded-lg border-gray-300 text-sm focus:border-green-500 focus:ring-green-500" placeholder="Yanıt yazın..." rows="1"></textarea>
+                            <button data-questionid="${qa.id}" class="reply-question-button rounded-lg px-4 bg-green-600 text-white font-semibold hover:bg-green-700 text-sm">Gönder</button>
+                        </div>`
                     }
                 </div>
             </div>`;
@@ -1544,14 +1731,14 @@ async function handleReplyToQuestion(questionId: string) {
         return;
     }
     await db.updateData('qas', questionId, { answer });
-    showNotification("Yanıtınız öğrenciye iletildi.", "success");
+    showNotification("Yanıt gönderildi.", "success");
     await renderStudentQuestions();
 }
 
 async function renderClassAnalytics() {
     const container = teacherDashboard.contents.analytics;
     if (!isDbConnected) {
-        container.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        container.innerHTML = '<p class="text-center text-gray-500">Bağlantı gerekli.</p>';
         return;
     }
     
@@ -1566,7 +1753,7 @@ async function renderClassAnalytics() {
     const allScores = allSessions.flatMap(s => s.scores);
     
     const totalSimulations = allSessions.length;
-    let mostPracticed = 'N/A';
+    let mostPracticed = 'Veri Yok';
     if(totalSimulations > 0) {
         const scenarioCounts = allSessions.reduce((acc, session) => {
             acc[session.scenario.title] = (acc[session.scenario.title] || 0) + 1;
@@ -1578,27 +1765,35 @@ async function renderClassAnalytics() {
     const averageScores = calculateAverageScores(allScores);
 
     container.innerHTML = `
-        <h3 class="text-xl font-bold text-gray-800 mb-6 text-center">Sınıf Geneli Analitiği</h3>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-            <div class="bg-white p-6 rounded-lg shadow-md">
-                <span class="material-symbols-outlined text-4xl text-indigo-500">group</span>
-                <p class="text-3xl font-bold text-gray-800 mt-2">${students.filter(s=>s.approved).length}</p>
-                <p class="text-gray-500">Onaylı Öğrenci</p>
+        <h3 class="text-lg font-bold text-gray-800 mb-6">Sınıf Genel Bakışı</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+                <div class="bg-blue-50 p-3 rounded-lg text-blue-600"><span class="material-symbols-outlined text-3xl">groups</span></div>
+                <div>
+                    <p class="text-2xl font-bold text-gray-800">${students.filter(s=>s.approved).length}</p>
+                    <p class="text-xs text-gray-500 uppercase font-semibold">Aktif Öğrenci</p>
+                </div>
             </div>
-            <div class="bg-white p-6 rounded-lg shadow-md">
-                <span class="material-symbols-outlined text-4xl text-teal-500">psychology</span>
-                <p class="text-3xl font-bold text-gray-800 mt-2">${totalSimulations}</p>
-                <p class="text-gray-500">Tamamlanan Simülasyon</p>
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+                <div class="bg-teal-50 p-3 rounded-lg text-teal-600"><span class="material-symbols-outlined text-3xl">psychology_alt</span></div>
+                <div>
+                    <p class="text-2xl font-bold text-gray-800">${totalSimulations}</p>
+                    <p class="text-xs text-gray-500 uppercase font-semibold">Tamamlanan Seans</p>
+                </div>
             </div>
-            <div class="bg-white p-6 rounded-lg shadow-md">
-                <span class="material-symbols-outlined text-4xl text-pink-500">star</span>
-                 <p class="text-lg font-bold text-gray-800 mt-2">${mostPracticed}</p>
-                <p class="text-gray-500">En Popüler Senaryo</p>
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+                <div class="bg-pink-50 p-3 rounded-lg text-pink-600"><span class="material-symbols-outlined text-3xl">trending_up</span></div>
+                <div>
+                     <p class="text-lg font-bold text-gray-800 truncate w-32 md:w-auto" title="${mostPracticed}">${mostPracticed}</p>
+                    <p class="text-xs text-gray-500 uppercase font-semibold">Popüler Vaka</p>
+                </div>
             </div>
         </div>
-        <div class="mt-8 bg-white p-6 rounded-lg shadow-md">
-            <h4 class="text-lg font-bold text-gray-800 mb-4 text-center">Sınıf Ortalamaları</h4>
-            ${createChartHTML(averageScores)}
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h4 class="text-sm font-bold text-gray-800 uppercase tracking-wide mb-6 text-center">Ortalama Performans Metrikleri</h4>
+            <div class="max-w-2xl mx-auto">
+                ${createChartHTML(averageScores)}
+            </div>
         </div>
     `;
 }
@@ -1606,17 +1801,35 @@ async function renderClassAnalytics() {
 function renderScenarioBuilder() {
     const container = teacherDashboard.contents.builder;
     container.innerHTML = `
-        <h3 class="text-xl font-bold text-gray-800 mb-4">Yeni Senaryo Oluştur</h3>
-        <div class="space-y-4">
-            <div><label class="block text-sm font-medium">Başlık</label><input type="text" id="builder-title" class="w-full rounded-lg"></div>
-            <div><label class="block text-sm font-medium">Açıklama (Öğrencinin göreceği kısa tanım)</label><textarea id="builder-desc" class="w-full rounded-lg" rows="3"></textarea></div>
-            <div><label class="block text-sm font-medium">Danışan Profili (Yapay zekanın canlandıracağı detaylı profil)</label><textarea id="builder-profile" class="w-full rounded-lg" rows="5"></textarea></div>
-            <button id="save-scenario-button" class="w-full h-12 px-6 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600">Senaryoyu Kaydet</button>
+        <div class="max-w-3xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
+            <h3 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                <span class="material-symbols-outlined text-amber-500">add_circle</span> Yeni Vaka Senaryosu
+            </h3>
+            <div class="space-y-5">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Senaryo Başlığı</label>
+                    <input type="text" id="builder-title" class="w-full rounded-lg border-gray-300 focus:ring-amber-500 focus:border-amber-500" placeholder="Örn: OKB - Temizlik Takıntısı">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Kısa Açıklama (Öğrenci Görünümü)</label>
+                    <textarea id="builder-desc" class="w-full rounded-lg border-gray-300 focus:ring-amber-500 focus:border-amber-500" rows="3" placeholder="Öğrencinin seçim ekranında göreceği özet..."></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Danışan Profili & AI Talimatı (Detaylı)</label>
+                    <div class="relative">
+                        <textarea id="builder-profile" class="w-full rounded-lg border-gray-300 focus:ring-amber-500 focus:border-amber-500 font-mono text-sm" rows="8" placeholder="Simülasyonun kişiliği, semptomları, konuşma tarzı ve direnç noktaları buraya detaylıca yazılmalı..."></textarea>
+                        <span class="absolute right-2 bottom-2 text-xs text-gray-400 bg-white px-1">AI Prompt</span>
+                    </div>
+                </div>
+                <div class="pt-4 border-t border-gray-100">
+                    <button id="save-scenario-button" class="w-full h-11 px-6 bg-amber-600 text-white font-bold rounded-lg hover:bg-amber-700 transition-all shadow-sm">Senaryoyu Yayınla</button>
+                </div>
+            </div>
         </div>`;
     
     document.getElementById('save-scenario-button')!.addEventListener('click', async () => {
         if (!isDbConnected) {
-            showNotification("Bu özellik için veritabanı bağlantısı gerekli.", "error");
+            showNotification("Bağlantı yok.", "error");
             return;
         }
         const title = (document.getElementById('builder-title') as HTMLInputElement).value.trim();
@@ -1633,7 +1846,7 @@ function renderScenarioBuilder() {
             isCustom: true
         };
         await db.setData('customScenarios', scenarioId, newScenario);
-        showNotification("Özel senaryo başarıyla kaydedildi!", "success");
+        showNotification("Yeni vaka senaryosu eklendi.", "success");
         (document.getElementById('builder-title') as HTMLInputElement).value = '';
         (document.getElementById('builder-desc') as HTMLTextAreaElement).value = '';
         (document.getElementById('builder-profile') as HTMLTextAreaElement).value = '';
@@ -1643,7 +1856,7 @@ function renderScenarioBuilder() {
 async function renderResourceLibrary() {
     const container = teacherDashboard.contents.library;
      if (!isDbConnected) {
-        container.innerHTML = '<p class="text-center text-gray-500">Bu özellik için veritabanı bağlantısı gerekli.</p>';
+        container.innerHTML = '<p class="text-center text-gray-500">Bağlantı gerekli.</p>';
         return;
     }
 
@@ -1654,18 +1867,40 @@ async function renderResourceLibrary() {
 
     container.innerHTML = `
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div>
-                <h3 class="text-xl font-bold text-gray-800 mb-4">Mevcut Kaynaklar</h3>
-                <div id="resource-list" class="space-y-3 max-h-96 overflow-y-auto"></div>
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden h-[600px]">
+                <div class="p-4 border-b border-gray-200 bg-gray-50">
+                     <h3 class="text-lg font-bold text-gray-800">Mevcut Kaynaklar</h3>
+                </div>
+                <div id="resource-list" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
             </div>
-            <div class="bg-white p-6 rounded-lg shadow-inner">
-                <h3 class="text-xl font-bold text-gray-800 mb-4">Yeni Kaynak Ekle</h3>
+            
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-fit">
+                <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-blue-600">post_add</span> Yeni Kaynak Ekle</h3>
                 <div class="space-y-4">
-                     <div><label class="block text-sm font-medium">Başlık</label><input type="text" id="resource-title" class="w-full rounded-lg"></div>
-                     <div><label class="block text-sm font-medium">URL</label><input type="text" id="resource-url" class="w-full rounded-lg"></div>
-                     <div><label class="block text-sm font-medium">Tür</label><select id="resource-type" class="w-full rounded-lg"><option value="article">Makale</option><option value="video">Video</option><option value="pdf">PDF</option></select></div>
-                     <div><label class="block text-sm font-medium">İlişkili Senaryolar</label><select id="resource-scenarios" class="w-full rounded-lg" multiple>${scenarioOptions}</select></div>
-                     <button id="save-resource-button" class="w-full h-12 px-6 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600">Kaynağı Kaydet</button>
+                     <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Kaynak Başlığı</label>
+                        <input type="text" id="resource-title" class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="Örn: BDT Temel İlkeler PDF">
+                     </div>
+                     <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">URL / Link</label>
+                        <input type="text" id="resource-url" class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="https://...">
+                     </div>
+                     <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Materyal Türü</label>
+                        <select id="resource-type" class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="article">Makale</option>
+                            <option value="video">Video</option>
+                            <option value="pdf">PDF Dökümanı</option>
+                        </select>
+                     </div>
+                     <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">İlgili Senaryolar (Çoklu Seçim)</label>
+                        <select id="resource-scenarios" class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 h-32" multiple>
+                            ${scenarioOptions}
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1">Ctrl/Cmd tuşuna basılı tutarak birden fazla seçebilirsiniz.</p>
+                     </div>
+                     <button id="save-resource-button" class="w-full h-10 px-6 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors">Kaynağı Kütüphaneye Ekle</button>
                 </div>
             </div>
         </div>
@@ -1675,20 +1910,27 @@ async function renderResourceLibrary() {
         const listContainer = document.getElementById('resource-list')!;
         const resources = await db.getCollection('resources');
         listContainer.innerHTML = '';
+        if (resources.length === 0) listContainer.innerHTML = '<p class="text-center text-gray-400 py-4">Henüz kaynak eklenmemiş.</p>';
+        
         resources.forEach(r => {
             listContainer.innerHTML += `
-                <div class="flex items-center justify-between bg-white p-3 rounded-md shadow-sm">
-                    <div>
-                        <p class="font-semibold">${r.title}</p>
-                        <p class="text-xs text-gray-500">${r.url}</p>
+                <div class="flex items-center justify-between bg-white p-3 rounded-lg border border-gray-100 hover:shadow-sm transition-shadow group">
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <div class="bg-blue-50 text-blue-600 p-2 rounded-lg flex-shrink-0"><span class="material-symbols-outlined">${r.type === 'video' ? 'movie' : r.type === 'pdf' ? 'picture_as_pdf' : 'article'}</span></div>
+                        <div class="truncate">
+                            <p class="font-semibold text-gray-800 text-sm truncate" title="${r.title}">${r.title}</p>
+                            <a href="${r.url}" target="_blank" class="text-xs text-blue-500 hover:underline truncate block">${r.url}</a>
+                        </div>
                     </div>
-                    <button class="delete-resource-button text-red-500 hover:text-red-700" data-id="${r.id}"><span class="material-symbols-outlined">delete</span></button>
+                    <button class="delete-resource-button text-gray-400 hover:text-red-500 p-1 rounded transition-colors" data-id="${r.id}"><span class="material-symbols-outlined">delete</span></button>
                 </div>`;
         });
         document.querySelectorAll('.delete-resource-button').forEach(btn => btn.addEventListener('click', async (e) => {
             const id = (e.currentTarget as HTMLElement).dataset.id!;
-            await db.deleteData('resources', id);
-            await renderList();
+            if(confirm('Bu kaynağı silmek istediğinize emin misiniz?')) {
+                await db.deleteData('resources', id);
+                await renderList();
+            }
         }));
     };
     
@@ -1704,7 +1946,7 @@ async function renderResourceLibrary() {
         const resourceId = `res_${Date.now()}`;
         const newResource: Resource = { id: resourceId, title, url, type, associatedScenarioIds };
         await db.setData('resources', resourceId, newResource);
-        showNotification("Kaynak kaydedildi.", "success");
+        showNotification("Kaynak kütüphaneye eklendi.", "success");
         (document.getElementById('resource-title') as HTMLInputElement).value = '';
         (document.getElementById('resource-url') as HTMLInputElement).value = '';
         await renderList();
@@ -1719,12 +1961,12 @@ function renderTeacherDashboard() {
     teacherDashboard.tabs.forEach(tab => {
         const tabName = (tab as HTMLElement).dataset.tab!;
         if (tabName === activeTeacherTab) {
-            tab.classList.add('border-[var(--teacher-color)]', 'text-[var(--teacher-color)]');
-            tab.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+            tab.classList.add('bg-teal-50', 'text-teal-700', 'shadow-sm', 'border-teal-100');
+            tab.classList.remove('hover:bg-white', 'text-gray-500');
             teacherDashboard.contents[tabName as keyof typeof teacherDashboard.contents].classList.remove('hidden');
         } else {
-             tab.classList.remove('border-[var(--teacher-color)]', 'text-[var(--teacher-color)]');
-             tab.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+             tab.classList.remove('bg-teal-50', 'text-teal-700', 'shadow-sm', 'border-teal-100');
+             tab.classList.add('hover:bg-white', 'text-gray-500');
         }
     });
 
