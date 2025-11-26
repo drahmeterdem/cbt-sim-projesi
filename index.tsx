@@ -536,6 +536,9 @@ function toggleLoginViews(view: 'login' | 'register') {
 
 function getFirebaseAuthErrorMessage(error: any): string {
     switch (error.code) {
+        case 'auth/invalid-login-credentials':
+        case 'auth/invalid-credential':
+            return 'E-posta veya şifre hatalı.';
         case 'auth/invalid-email':
             return 'Geçersiz e-posta adresi formatı.';
         case 'auth/user-not-found':
@@ -583,9 +586,21 @@ async function handleLogin() {
                 // Try logging in first
                 userCredential = await db.signInWithEmail(email, password);
             } catch (loginErr: any) {
-                if (loginErr.code === 'auth/user-not-found') {
-                    // Create if not exists
-                    userCredential = await db.signUpWithEmail(email, password);
+                // Handle cases where user doesn't exist OR password is wrong (masked by security)
+                if (loginErr.code === 'auth/user-not-found' || 
+                    loginErr.code === 'auth/invalid-login-credentials' || 
+                    loginErr.code === 'auth/invalid-credential') {
+                    
+                    try {
+                        // Attempt to create the admin user
+                        userCredential = await db.signUpWithEmail(email, password);
+                    } catch (createErr: any) {
+                        // If creation fails because email is in use, it means the user existed but password was wrong
+                        if (createErr.code === 'auth/email-already-in-use') {
+                            throw new Error("Admin hesabı zaten var ancak girilen şifre (708090) bu hesapla eşleşmiyor. Lütfen doğru şifreyi kullanın.");
+                        }
+                        throw createErr;
+                    }
                 } else {
                     throw loginErr;
                 }
@@ -602,9 +617,9 @@ async function handleLogin() {
             
             // Allow state listener to redirect
             return;
-        } catch (error) {
+        } catch (error: any) {
             console.error("Admin bootstrap failed:", error);
-            (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "Admin girişi yapılamadı: " + getFirebaseAuthErrorMessage(error);
+            (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "Admin girişi başarısız: " + (error.message || getFirebaseAuthErrorMessage(error));
             loginError.classList.remove('hidden');
             loginButton.disabled = false;
             loginButton.textContent = 'Giriş Yap';
