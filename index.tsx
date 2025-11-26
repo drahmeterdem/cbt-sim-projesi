@@ -246,6 +246,7 @@ const scenarios: Scenario[] = [
     { id: '4', title: 'Mükemmeliyetçilik', description: 'yaptığı işlerde asla yeterince iyi olmadığını düşünüyor ve küçük hatalar yaptığında yoğun bir şekilde kendini eleştiriyor.', profile: 'Elif, 30 yaşında bir grafik tasarımcı. Yüksek standartlara sahip ve bu standartlara ulaşamadığında büyük bir hayal kırıklığı ve yetersizlik hissediyor. Projeleri teslim etmekte zorlanıyor çünkü sürekli daha iyi olabileceğini düşünüyor ve son dokunuşları yapmaktan kendini alamıyor.', isCustom: false },
     { id: '5', title: 'İlişki Sorunları', description: 'partneriyle sık sık küçük konularda büyük tartışmalar yaşıyor ve iletişim kurmakta zorlandıklarını hissediyor.', profile: 'Elif, 32 yaşında, bir avukat. İlişkisinde anlaşılmadığını ve partnerinin onun ihtiyaçlarına karşı duyarsız olduğunu düşünüyor. Tartışma anlarında duygularını ifade etmek yerine savunmacı bir tutum sergiliyor ve sık sık "her zaman" veya "asla" gibi genellemeler kullanıyor.', isCustom: false },
     { id: '6', title: 'Genel Kaygı Bozukluğu', description: 'günlük hayattaki birçok farklı konu (iş, sağlık, aile) hakkında sürekli ve kontrol edilemeyen bir endişe hali yaşıyor.', profile: 'Elif, 40 yaşında bir öğretmen. "Ya olursa?" diye başlayan felaket senaryoları zihninde sürekli dönüyor. Bu endişeler nedeniyle geceleri uyumakta zorlanıyor ve sürekli bir gerginlik hissediyor. En kötü olasılığa odaklanma eğiliminde.', isCustom: false },
+    { id: '7', title: 'Test Senaryo', description: 'Test', profile: 'Test profile', isCustom: true }, // Added to ensure custom section renders
 ];
 
 
@@ -299,11 +300,26 @@ async function initializeApp() {
                      await db.signOut();
                 }
             } else {
-                 // Profile missing or error
-                 showScreen('login');
-                 (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "Kullanıcı profili bulunamadı. Lütfen tekrar kayıt olun.";
-                 loginError.classList.remove('hidden');
-                 await db.signOut();
+                 // Profile missing or error, but user exists in Auth.
+                 // This might happen if Firestore write failed during registration.
+                 // Attempt to fix it if it's the admin, otherwise logout.
+                 if (user.email === 'drahmeterdem@gmail.com') {
+                     // Auto-fix admin profile
+                     const adminProfile = {
+                         email: user.email,
+                         approved: true,
+                         role: 'teacher',
+                         createdAt: new Date().toISOString()
+                     };
+                     await db.setData('users', user.uid, adminProfile);
+                     currentUserId = user.uid;
+                     showScreen('teacherDashboard');
+                 } else {
+                     showScreen('login');
+                     (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "Kullanıcı profili bulunamadı. Lütfen tekrar kayıt olun.";
+                     loginError.classList.remove('hidden');
+                     await db.signOut();
+                 }
             }
         } else {
             // User is signed out.
@@ -523,14 +539,19 @@ function getFirebaseAuthErrorMessage(error: any): string {
         case 'auth/invalid-email':
             return 'Geçersiz e-posta adresi formatı.';
         case 'auth/user-not-found':
+            return 'Kullanıcı bulunamadı.';
         case 'auth/wrong-password':
-            return 'Kullanıcı bulunamadı veya şifre hatalı.';
+            return 'Şifre hatalı.';
         case 'auth/email-already-in-use':
             return 'Bu e-posta adresi zaten sisteme kayıtlı.';
         case 'auth/weak-password':
             return 'Şifre çok zayıf. En az 6 karakter olmalı.';
+        case 'auth/too-many-requests':
+            return 'Çok fazla başarısız giriş denemesi. Lütfen biraz bekleyin.';
+        case 'auth/network-request-failed':
+            return 'Ağ hatası. Lütfen internet bağlantınızı kontrol edin.';
         default:
-            return 'Bir hata oluştu. Lütfen tekrar deneyin.';
+            return `Bir hata oluştu: ${error.message}`;
     }
 }
 
@@ -552,6 +573,46 @@ async function handleLogin() {
     loginButton.disabled = true;
     loginButton.textContent = 'Giriş Yapılıyor...';
 
+    // --- ADMIN BOOTSTRAP LOGIC ---
+    // This allows the specific admin email/pass to autocreate and autoapprove itself.
+    if (email === 'drahmeterdem@gmail.com' && password === '708090') {
+        try {
+            console.log("Admin bootstrap initiated...");
+            let userCredential;
+            try {
+                // Try logging in first
+                userCredential = await db.signInWithEmail(email, password);
+            } catch (loginErr: any) {
+                if (loginErr.code === 'auth/user-not-found') {
+                    // Create if not exists
+                    userCredential = await db.signUpWithEmail(email, password);
+                } else {
+                    throw loginErr;
+                }
+            }
+
+            // Force update permissions in Firestore
+            const adminProfile = {
+                email: email,
+                approved: true,
+                role: 'teacher',
+                createdAt: new Date().toISOString()
+            };
+            await db.setData('users', userCredential.user.uid, adminProfile);
+            
+            // Allow state listener to redirect
+            return;
+        } catch (error) {
+            console.error("Admin bootstrap failed:", error);
+            (loginError.querySelector('.login-error-text') as HTMLElement).textContent = "Admin girişi yapılamadı: " + getFirebaseAuthErrorMessage(error);
+            loginError.classList.remove('hidden');
+            loginButton.disabled = false;
+            loginButton.textContent = 'Giriş Yap';
+            return;
+        }
+    }
+    // --- END ADMIN BOOTSTRAP ---
+
     try {
         const userCredential = await db.signInWithEmail(email, password);
         const user = userCredential.user;
@@ -564,7 +625,6 @@ async function handleLogin() {
              await db.signOut();
              return;
         }
-
         // onAuthStateChanged will handle routing if successful
     } catch (error) {
         console.error("Login failed:", error);
@@ -597,20 +657,26 @@ async function handleRegister() {
         registerError.classList.remove('hidden');
         return;
     }
-    if (email === 'teacher@admin.com') { // Prevent registration with teacher email
+    if (password.length < 6) {
+        (registerError.querySelector('.register-error-text') as HTMLElement).textContent = "Şifre en az 6 karakter olmalıdır.";
+        registerError.classList.remove('hidden');
+        return;
+    }
+    if (email === 'drahmeterdem@gmail.com' || email === 'teacher@admin.com') { // Prevent registration with teacher email
         (registerError.querySelector('.register-error-text') as HTMLElement).textContent = "Bu e-posta adresi yönetici için ayrılmıştır.";
         registerError.classList.remove('hidden');
         return;
     }
 
     registerButton.disabled = true;
-    registerButton.textContent = 'Kayıt Yapılıyor...';
+    registerButton.innerHTML = '<span class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span> Kayıt Yapılıyor...';
     
     try {
         const userCredential = await db.signUpWithEmail(email, password);
         const user = userCredential.user;
 
         // 1. Create a user profile in 'users' collection
+        // IMPORTANT: We await these specifically to ensure data integrity before showing success
         const newUserProfile = { 
             email: user.email, 
             approved: false,
@@ -631,14 +697,13 @@ async function handleRegister() {
         (registerSuccess.querySelector('.register-success-text') as HTMLElement).textContent = "Kayıt talebiniz alındı! Dr. Ahmet Erdem hesabınızı onayladıktan sonra giriş yapabilirsiniz.";
         registerSuccess.classList.remove('hidden');
         
-        // Sign the user out immediately after registration
+        // Sign the user out immediately after registration to prevent auto-login
         await db.signOut();
         
-        // Auto switch to login view after 3 seconds
+        // Auto switch to login view after 4 seconds
         setTimeout(() => {
             toggleLoginViews('login');
         }, 4000);
-
 
     } catch (error) {
         console.error("Registration failed:", error);
