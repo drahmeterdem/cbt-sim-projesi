@@ -26,7 +26,13 @@ interface Resource {
 }
 
 // --- AI & DB Client Initialization ---
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Initialize AI client lazily to prevent crashes if key is missing on load
+let ai: GoogleGenAI | null = null;
+const apiKey = import.meta.env.VITE_API_KEY;
+if (apiKey) {
+    ai = new GoogleGenAI({ apiKey: apiKey });
+}
+
 let isDbConnected: boolean = false;
 
 
@@ -711,7 +717,7 @@ function createScenarioCard(scenario: Scenario): HTMLElement {
 
 // --- Simulation Logic ---
 function startSimulation(scenario: Scenario) {
-    if (!ai) { showNotification("Yapay Zeka sistemi hatası.", "error"); return; }
+    if (!ai) { showNotification("AI Anahtarı (VITE_API_KEY) tanımlanmamış.", "error"); return; }
 
     currentScenario = scenario;
     chatHistory = [];
@@ -1192,7 +1198,7 @@ async function viewSessionHistory(sessionId: string) {
         content.innerHTML += `
             <div class="flex flex-col ${isModel ? 'items-start' : 'items-end'} mb-6">
                 <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 px-2">${role}</span>
-                <div class="${isModel ? 'bg-white border border-gray-200 text-gray-700' : 'bg-teal-50 border border-teal-100 text-teal-900'} p-4 rounded-2xl max-w-[85%] text-sm shadow-sm">
+                <div class="p-4 rounded-2xl max-w-[85%] text-sm shadow-sm ${isModel ? 'bg-white border border-gray-200 text-gray-700' : 'bg-teal-50 border border-teal-100 text-teal-900'}">
                     ${text}
                 </div>
             </div>`;
@@ -1434,7 +1440,7 @@ async function handleFileUpload() {
 }
 
 async function handleAnalyzeTranscript() {
-    if (!ai) return;
+    if (!ai) { showNotification("AI Anahtarı eksik.", "error"); return; }
     const transcript = analysis.transcriptInput.value;
     if (!transcript.trim()) return;
 
@@ -1557,12 +1563,23 @@ function showNotification(message: string, type: 'success' | 'error' | 'info') {
 
 // --- AI Models ---
 async function generateContentWithRetry(params: any, retries = 3) {
-    if (!ai) throw new Error("API Key Missing");
+    if (!ai) {
+        // Double check API Key availability
+        const key = import.meta.env.VITE_API_KEY;
+        if (!key || key.includes('AIzaSy...')) {
+            throw new Error("API Key Missing or Invalid");
+        }
+        throw new Error("AI Client not initialized");
+    }
     for (let i = 0; i < retries; i++) {
         try {
             const response = await ai.models.generateContent(params);
             if (response.text) return response;
-        } catch (error) { if (i === retries - 1) throw error; await new Promise(r => setTimeout(r, 1000)); }
+        } catch (error) { 
+            console.error("AI Request Failed:", error);
+            if (i === retries - 1) throw error; 
+            await new Promise(r => setTimeout(r, 1000)); 
+        }
     }
 }
 
@@ -1601,9 +1618,15 @@ async function getAiResponse(history: any[], currentScenario: Scenario) {
         const jsonResponse = JSON.parse(extractJsonFromString(response.text.trim())!);
         chatHistory.push({ role: 'model', parts: [{ text: JSON.stringify(jsonResponse) }] });
         updateSimulationUI(jsonResponse);
-    } catch (error) {
+    } catch (error: any) {
         showLoaderWithOptions(false);
-        showNotification("AI yanıt hatası.", "error");
+        console.error("AI Error Details:", error);
+        
+        let errorMsg = "AI yanıt hatası.";
+        if (error.message.includes("API Key")) {
+            errorMsg = "Sistem Hatası: API Anahtarı eksik.";
+        }
+        showNotification(errorMsg, "error");
     } 
 }
 
