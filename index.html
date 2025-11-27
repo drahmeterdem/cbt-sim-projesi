@@ -20,71 +20,81 @@
         }
         body {
             font-family: "Spline Sans", "Noto Sans", sans-serif;
+            background-color: #f0f4f8;
+            background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+            background-size: 24px 24px;
         }
+        
+        /* Glassmorphism Classes */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+        .glass-bubble-client {
+            background: linear-gradient(135deg, #0f766e, #0d9488);
+            box-shadow: 0 4px 15px rgba(15, 118, 110, 0.2);
+        }
+
         .chat-bubble {
-            @apply max-w-[85%] rounded-3xl p-4 transition-all duration-300 ease-in-out shadow-md;
+            @apply max-w-[85%] rounded-2xl p-4 transition-all duration-300 ease-in-out shadow-sm relative;
         }
         .chat-bubble-therapist {
-            @apply bg-white text-gray-800 rounded-br-lg border border-gray-100;
+            @apply bg-white text-gray-800 rounded-br-sm border border-gray-100 shadow-[0_2px_8px_rgba(0,0,0,0.04)];
         }
         .chat-bubble-client {
-            @apply bg-[var(--primary-color)] text-white rounded-bl-lg;
-        }
-        .chat-bubble-teacher {
-            @apply bg-amber-50 text-amber-900 border border-amber-200 rounded-lg shadow-sm w-full max-w-full text-sm p-3;
+            @apply glass-bubble-client text-white rounded-bl-sm;
         }
         .option-button {
-            @apply w-full text-left bg-white border border-gray-200 text-gray-700 rounded-xl px-5 py-3 hover:bg-teal-50 hover:border-teal-300 hover:text-teal-800 hover:scale-[1.01] transform transition-all duration-200 ease-in-out shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:scale-100;
+            @apply w-full text-left bg-white border border-gray-200 text-gray-700 rounded-xl px-5 py-4 hover:bg-teal-50 hover:border-teal-300 hover:text-teal-900 hover:-translate-y-0.5 transform transition-all duration-200 ease-out shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed;
         }
-        .chart-bar {
-            @apply transition-all duration-700 ease-out;
-        }
-        .screen {
-            @apply w-full transition-opacity duration-500 ease-in-out;
-        }
-        .screen.hidden {
-            @apply opacity-0 pointer-events-none absolute;
-        }
-        .teacher-content.hidden {
-            @apply !hidden;
-        }
+        
+        /* Animations */
         @keyframes fade-in-up {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fade-in-up {
-            animation: fade-in-up 0.5s ease-out forwards;
+        .animate-fade-in-up { animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+        @keyframes pulse-soft {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
         }
-        .modal.hidden {
-            @apply opacity-0 pointer-events-none;
+        .voice-listening {
+            animation: pulse-red 1.5s infinite;
+            background-color: #fee2e2 !important; 
+            color: #dc2626 !important;
+            border-color: #fca5a5 !important;
         }
-         .modal {
-            @apply transition-opacity duration-300;
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
         }
-        /* Tab Slider Animation */
-        .tab-slider {
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+        /* Typing Indicator Dots */
+        .typing-dot {
+            animation: typing 1.4s infinite ease-in-out both;
         }
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
         }
-        ::-webkit-scrollbar-track {
-            background: #f1f1f1; 
+
+        /* Success Confetti Animation (CSS Only approximation) */
+        @keyframes pop {
+            50% { transform: scale(1.2); }
         }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1; 
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8; 
-        }
+        .animate-pop { animation: pop 0.3s ease-out; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 <script type="importmap">
 {
@@ -94,618 +104,518 @@
 }
 </script>
 </head>
-<body class="bg-gray-50 text-slate-800 h-screen overflow-hidden flex flex-col">
+<body class="bg-[#f0f4f8] text-slate-800 h-screen overflow-hidden flex flex-col selection:bg-teal-200 selection:text-teal-900">
     
 <!-- Header -->
-<header id="main-header" class="flex-none bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between z-20 shadow-sm relative">
+<header id="main-header" class="flex-none glass-panel border-b border-white/50 px-6 py-3 flex items-center justify-between z-30 shadow-sm relative backdrop-blur-md">
     <div class="flex items-center gap-3">
-        <div class="bg-[var(--primary-color)] text-white p-2 rounded-lg">
+        <div class="bg-gradient-to-br from-teal-600 to-teal-800 text-white p-2 rounded-xl shadow-lg shadow-teal-200/50">
             <span class="material-symbols-outlined text-2xl">psychology_alt</span>
         </div>
         <div>
             <h1 class="text-lg font-bold text-slate-800 leading-tight">Dr. Ahmet Erdem</h1>
-            <p class="text-xs text-slate-500 font-medium tracking-wide">BDT SÜPERVİZYON SİSTEMİ</p>
+            <p class="text-[10px] uppercase tracking-wider text-teal-700 font-bold bg-teal-50 inline-block px-1.5 rounded-md mt-0.5">BDT Süpervizyon Sistemi</p>
         </div>
     </div>
     
     <div class="flex items-center gap-4">
-        <div id="student-info" class="hidden flex items-center gap-3 bg-slate-100 py-1.5 px-4 rounded-full border border-slate-200">
-            <div class="bg-slate-300 rounded-full p-1"><span class="material-symbols-outlined text-slate-600 text-sm">person</span></div>
+        <div id="student-info" class="hidden flex items-center gap-3 bg-white/80 py-1.5 px-4 rounded-full border border-gray-200 shadow-sm">
+            <div class="bg-gradient-to-r from-gray-200 to-gray-300 rounded-full p-1"><span class="material-symbols-outlined text-gray-600 text-sm">person</span></div>
             <span id="student-name-display" class="font-semibold text-sm text-slate-700"></span>
         </div>
         
-        <button id="back-to-selection-button" class="hidden flex items-center justify-center rounded-lg h-9 px-4 text-sm bg-white border border-gray-300 text-gray-600 font-medium hover:bg-gray-50 hover:text-[var(--primary-color)] transition-all">
+        <button id="back-to-selection-button" class="hidden flex items-center justify-center rounded-xl h-9 px-4 text-sm bg-white border border-gray-200 text-gray-600 font-medium hover:bg-gray-50 hover:text-[var(--primary-color)] transition-all shadow-sm">
             <span class="material-symbols-outlined text-lg mr-1.5">arrow_back</span>
             <span>Geri Dön</span>
         </button>
 
-        <button id="save-progress-button" class="hidden flex items-center justify-center rounded-lg h-9 px-4 text-sm bg-[var(--primary-color)] text-white font-medium hover:bg-teal-800 transition-all shadow-sm">
-            <span class="material-symbols-outlined text-lg mr-1.5">save</span>
-            <span>Kaydet & Çık</span>
-        </button>
+        <button id="save-progress-button" class="hidden"></button>
 
-        <button id="logout-button" class="hidden flex items-center justify-center rounded-lg h-9 w-9 bg-red-50 text-red-600 hover:bg-red-100 transition-all border border-red-100" title="Çıkış Yap">
+        <button id="logout-button" class="hidden flex items-center justify-center rounded-xl h-9 w-9 bg-white text-red-500 hover:bg-red-50 hover:text-red-600 transition-all border border-gray-200 shadow-sm" title="Çıkış Yap">
             <span class="material-symbols-outlined text-lg">logout</span>
         </button>
     </div>
 </header>
 
 <!-- Main Content Area -->
-<main class="flex-1 overflow-y-auto relative bg-[#F8FAFC]">
+<main class="flex-1 overflow-y-auto relative z-10">
     
     <!-- Welcome Screen -->
-    <div id="welcome-screen" class="screen flex flex-col items-center justify-center h-full px-4">
-        <div class="w-full max-w-3xl text-center space-y-6">
-            <div class="inline-block p-4 rounded-full bg-teal-50 mb-4">
-                <span class="material-symbols-outlined text-6xl text-[var(--primary-color)]">school</span>
+    <div id="welcome-screen" class="screen flex flex-col items-center justify-center h-full px-4 relative overflow-hidden">
+        <!-- Background Decorative Blobs -->
+        <div class="absolute top-[-10%] left-[-5%] w-96 h-96 bg-teal-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
+        <div class="absolute top-[-10%] right-[-5%] w-96 h-96 bg-purple-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
+        <div class="absolute -bottom-32 left-20 w-96 h-96 bg-amber-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
+
+        <div class="glass-panel w-full max-w-4xl text-center space-y-8 p-12 rounded-3xl shadow-2xl border border-white/60 relative z-20">
+            <div class="inline-flex items-center justify-center p-6 rounded-3xl bg-gradient-to-br from-teal-50 to-teal-100 mb-2 shadow-inner">
+                <span class="material-symbols-outlined text-7xl text-[var(--primary-color)] drop-shadow-sm">school</span>
             </div>
-            <h2 class="text-slate-900 text-4xl sm:text-6xl font-black tracking-tight">Eğitim ve Süpervizyon<br><span class="text-[var(--primary-color)]">Yönetim Paneli</span></h2>
-            <p class="text-slate-600 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed">
-                Öğrencilerimiz için özel olarak geliştirilmiş bu platformda simülasyon yapabilir, seans dökümanlarınızı yükleyebilir ve Dr. Ahmet Erdem'den geri bildirim alabilirsiniz.
-            </p>
-            <div class="mt-8">
-                <button id="go-to-login-button" class="group relative inline-flex items-center justify-center gap-3 rounded-full h-16 px-10 bg-[var(--primary-color)] text-white font-bold hover:bg-teal-800 transition-all duration-300 text-lg shadow-xl hover:shadow-2xl hover:-translate-y-1 overflow-hidden">
-                    <span class="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 ease-out -skew-x-12 origin-left"></span>
+            <div class="space-y-2">
+                <h2 class="text-slate-900 text-4xl sm:text-6xl font-black tracking-tight leading-tight">Eğitim ve Süpervizyon<br><span class="text-transparent bg-clip-text bg-gradient-to-r from-teal-600 to-blue-600">Yönetim Paneli</span></h2>
+                <p class="text-slate-600 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed font-medium">
+                    Yapay zeka destekli simülasyonlar ve Dr. Ahmet Erdem'in uzman geri bildirimleriyle BDT yetkinliğinizi zirveye taşıyın.
+                </p>
+            </div>
+            <div class="pt-4">
+                <button id="go-to-login-button" class="group relative inline-flex items-center justify-center gap-3 rounded-full h-16 px-12 bg-gradient-to-r from-teal-700 to-teal-600 text-white font-bold hover:scale-105 hover:shadow-teal-500/30 transition-all duration-300 text-lg shadow-xl overflow-hidden">
+                    <span class="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-700 ease-out -skew-x-12 origin-left"></span>
                     <span>Öğrenci Girişi / Kayıt</span>
-                    <span class="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                    <span class="material-symbols-outlined group-hover:translate-x-2 transition-transform">arrow_forward</span>
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- Login/Register Screen (Split Layout) -->
+    <!-- Login/Register Screen -->
     <div id="login-screen" class="screen hidden w-full h-full flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl flex overflow-hidden max-w-5xl w-full min-h-[650px] border border-gray-100">
-            
-            <!-- Left Side: Branding -->
-            <div id="login-brand-panel" class="hidden md:flex flex-col justify-between w-5/12 bg-gradient-to-br from-teal-800 to-teal-900 text-white p-12 relative overflow-hidden transition-colors duration-500">
-                <div class="absolute top-0 left-0 w-full h-full opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-                <div class="absolute -bottom-24 -left-24 w-64 h-64 bg-teal-500 rounded-full blur-3xl opacity-30 mix-blend-overlay"></div>
-                <div class="absolute top-12 right-12 w-32 h-32 bg-yellow-400 rounded-full blur-3xl opacity-20 mix-blend-overlay"></div>
-
-                <div class="z-10 mt-10">
-                    <h3 id="brand-title" class="text-3xl font-bold mb-2">Hoş Geldiniz</h3>
-                    <p id="brand-subtitle" class="text-white/90 leading-relaxed">Gelişiminizi takip edin, süpervizyon alın ve yetkinliğinizi artırın.</p>
-                </div>
-
-                <div class="z-10 space-y-4 text-sm text-white/80">
-                    <div class="flex items-center gap-3">
-                        <span class="material-symbols-outlined">check_circle</span>
-                        <span>Sınırsız BDT Simülasyonu</span>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <span class="material-symbols-outlined">check_circle</span>
-                        <span>Yapay Zeka Destekli Analiz</span>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <span class="material-symbols-outlined">check_circle</span>
-                        <span>Kişiselleştirilmiş Geri Bildirim</span>
-                    </div>
-                </div>
-
-                <div class="z-10 text-xs text-white/60">
-                    © 2024 Dr. Ahmet Erdem
-                </div>
-            </div>
-
-            <!-- Right Side: Forms -->
-            <div class="w-full md:w-7/12 p-8 sm:p-12 flex flex-col justify-center bg-white relative">
+        <div class="bg-white rounded-3xl shadow-2xl flex overflow-hidden max-w-5xl w-full min-h-[650px] border border-white/50 ring-1 ring-gray-100">
+            <!-- Branding Left -->
+            <div id="login-brand-panel" class="hidden md:flex flex-col justify-between w-5/12 bg-gradient-to-br from-teal-800 to-teal-950 text-white p-12 relative overflow-hidden transition-all duration-700">
+                <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-teal-400/30 rounded-full blur-[100px]"></div>
                 
-                <!-- Login View -->
+                <div class="z-10 mt-10">
+                    <h3 id="brand-title" class="text-4xl font-bold mb-3 tracking-tight">Hoş Geldiniz</h3>
+                    <div class="w-12 h-1 bg-teal-400 rounded-full mb-6"></div>
+                    <p id="brand-subtitle" class="text-teal-50/90 leading-relaxed text-lg">Gelişiminizi takip edin, anlık analizler alın ve klinik becerilerinizi güvenli bir ortamda test edin.</p>
+                </div>
+                <div class="z-10 text-xs font-medium text-teal-200/60 uppercase tracking-widest">© 2024 Dr. Ahmet Erdem</div>
+            </div>
+            <!-- Form Right -->
+            <div class="w-full md:w-7/12 p-8 sm:p-14 flex flex-col justify-center bg-white/50 backdrop-blur-xl relative">
+                <!-- Login -->
                 <div id="login-view" class="max-w-md mx-auto w-full animate-fade-in-up">
-                    
-                    <!-- Role Toggler -->
-                    <div class="relative bg-gray-100 p-1 rounded-xl flex mb-8">
-                         <div id="role-slider" class="absolute left-1 top-1 bottom-1 w-[calc(50%-4px)] bg-white rounded-lg shadow-sm tab-slider z-0 border border-gray-200"></div>
-                         <button id="btn-role-student" class="flex-1 relative z-10 py-2.5 text-sm font-bold text-gray-800 text-center transition-colors">Öğrenci</button>
-                         <button id="btn-role-teacher" class="flex-1 relative z-10 py-2.5 text-sm font-medium text-gray-500 text-center transition-colors">Süpervizör</button>
+                    <div class="relative bg-gray-100 p-1.5 rounded-2xl flex mb-10 shadow-inner">
+                         <div id="role-slider" class="absolute left-1.5 top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-white rounded-xl shadow-sm tab-slider z-0 border border-gray-200/50"></div>
+                         <button id="btn-role-student" class="flex-1 relative z-10 py-3 text-sm font-bold text-gray-800 text-center transition-colors">Öğrenci</button>
+                         <button id="btn-role-teacher" class="flex-1 relative z-10 py-3 text-sm font-medium text-gray-500 text-center transition-colors">Süpervizör</button>
                     </div>
-
-                    <div class="mb-6">
-                        <h2 id="login-heading" class="text-2xl font-bold text-gray-900">Hesabınıza Giriş Yapın</h2>
-                        <p id="login-subheading" class="text-gray-500 text-sm mt-1">Eğitim materyallerine erişmek için bilgilerinizi girin.</p>
+                    <div class="mb-8">
+                        <h2 class="text-3xl font-bold text-gray-900 tracking-tight">Giriş Yapın</h2>
+                        <p class="text-gray-500 text-base mt-2">Devam etmek için hesabınıza erişin.</p>
                     </div>
-
-                    <div id="login-error" class="hidden flex items-start gap-2 text-red-600 bg-red-50 p-4 rounded-lg mb-6 text-sm border border-red-100">
-                        <span class="material-symbols-outlined text-lg mt-0.5">error</span>
-                        <span class="login-error-text"></span>
+                    <div id="login-error" class="hidden flex items-start gap-3 text-red-600 bg-red-50 p-4 rounded-xl mb-6 text-sm border border-red-100 shadow-sm animate-pop">
+                        <span class="material-symbols-outlined text-xl">error</span>
+                        <span class="login-error-text font-medium mt-0.5"></span>
                     </div>
-
-                    <form class="space-y-5" onsubmit="event.preventDefault();">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">E-posta Adresi</label>
-                            <div class="relative">
-                                <span class="material-symbols-outlined absolute left-3 top-3 text-gray-400">mail</span>
-                                <input type="email" id="email-input" class="pl-10 block w-full rounded-lg border-gray-300 focus:border-teal-500 focus:ring-teal-500 text-base py-2.5 transition-shadow" placeholder="mail@adresiniz.com">
-                            </div>
+                    <form class="space-y-6" onsubmit="event.preventDefault();">
+                        <div class="space-y-1">
+                            <label class="block text-sm font-bold text-gray-700 ml-1">E-posta</label>
+                            <input type="email" id="email-input" class="block w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/20 py-3.5 px-4 transition-all" placeholder="ornek@mail.com">
                         </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Şifre</label>
-                            <div class="relative">
-                                <span class="material-symbols-outlined absolute left-3 top-3 text-gray-400">lock</span>
-                                <input type="password" id="password-input" class="pl-10 block w-full rounded-lg border-gray-300 focus:border-teal-500 focus:ring-teal-500 text-base py-2.5 transition-shadow" placeholder="••••••••">
-                            </div>
+                        <div class="space-y-1">
+                            <label class="block text-sm font-bold text-gray-700 ml-1">Şifre</label>
+                            <input type="password" id="password-input" class="block w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/20 py-3.5 px-4 transition-all" placeholder="••••••••">
                         </div>
-                        
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center">
-                                <input id="remember-me" type="checkbox" class="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded">
-                                <label for="remember-me" class="ml-2 block text-sm text-gray-900">Beni hatırla</label>
-                            </div>
-                            <!-- Future feature -->
-                            <a href="#" class="text-sm font-medium text-teal-600 hover:text-teal-500">Şifremi unuttum</a>
-                        </div>
-
-                        <button id="login-button" class="w-full flex items-center justify-center rounded-lg h-12 bg-[var(--primary-color)] text-white font-semibold hover:bg-teal-800 transition-all duration-200 shadow-lg shadow-teal-100">
-                            Giriş Yap
-                        </button>
+                        <button id="login-button" class="w-full flex items-center justify-center rounded-xl h-14 bg-gradient-to-r from-teal-600 to-teal-700 text-white font-bold text-lg hover:shadow-lg hover:shadow-teal-500/30 hover:-translate-y-0.5 transition-all duration-300">Giriş Yap</button>
                     </form>
-
                     <div id="register-link-container" class="mt-8 text-center">
-                        <p class="text-sm text-gray-600">
-                            Hesabınız yok mu? 
-                            <button id="show-register-view" class="font-bold text-[var(--primary-color)] hover:underline ml-1">Kayıt Ol</button>
-                        </p>
+                        <p class="text-sm text-gray-600">Hesabınız yok mu? <button id="show-register-view" class="font-bold text-teal-700 hover:text-teal-900 hover:underline ml-1 transition-colors">Hemen Kayıt Olun</button></p>
                     </div>
                 </div>
-
-                <!-- Register View -->
+                <!-- Register -->
                 <div id="register-view" class="hidden max-w-md mx-auto w-full animate-fade-in-up">
-                    <div class="mb-6">
-                        <h2 class="text-2xl font-bold text-gray-900">Öğrenci Kaydı Oluştur</h2>
-                        <p class="text-gray-500 text-sm mt-1">Dr. Ahmet Erdem tarafından onaylanmak üzere bilgilerinizi girin.</p>
+                    <div class="mb-8">
+                        <h2 class="text-3xl font-bold text-gray-900">Kayıt Oluştur</h2>
+                        <p class="text-gray-500 mt-2">Eğitim dünyasına adım atın.</p>
                     </div>
-
-                    <div id="register-error" class="hidden flex items-start gap-2 text-red-600 bg-red-50 p-3 rounded-lg mb-4 text-sm border border-red-100">
-                        <span class="material-symbols-outlined text-lg mt-0.5">error</span>
-                        <span class="register-error-text"></span>
-                    </div>
-                    <div id="register-success" class="hidden flex items-start gap-2 text-green-700 bg-green-50 p-4 rounded-lg mb-4 text-sm border border-green-100">
-                        <span class="material-symbols-outlined text-lg mt-0.5">check_circle</span>
-                        <span class="register-success-text"></span>
-                    </div>
-
-                    <form class="space-y-4" onsubmit="event.preventDefault();">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">E-posta Adresi</label>
-                            <input type="email" id="register-email-input" class="block w-full rounded-lg border-gray-300 focus:border-teal-500 focus:ring-teal-500 py-2.5" placeholder="ornek@ogrenci.com">
+                    <div id="register-error" class="hidden flex items-start gap-2 text-red-600 bg-red-50 p-4 rounded-xl mb-6 text-sm border border-red-100 shadow-sm"><span class="register-error-text"></span></div>
+                    <div id="register-success" class="hidden flex items-start gap-2 text-green-700 bg-green-50 p-4 rounded-xl mb-6 text-sm border border-green-100 shadow-sm"><span class="register-success-text"></span></div>
+                    <form class="space-y-5" onsubmit="event.preventDefault();">
+                         <div class="grid grid-cols-2 gap-4">
+                            <input type="text" id="register-name-input" class="block w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/20 py-3.5 px-4" placeholder="Adınız">
+                            <input type="text" id="register-surname-input" class="block w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/20 py-3.5 px-4" placeholder="Soyadınız">
                         </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Şifre</label>
-                                <input type="password" id="register-password-input" class="block w-full rounded-lg border-gray-300 focus:border-teal-500 focus:ring-teal-500 py-2.5">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Şifre Tekrar</label>
-                                <input type="password" id="register-confirm-password-input" class="block w-full rounded-lg border-gray-300 focus:border-teal-500 focus:ring-teal-500 py-2.5">
-                            </div>
-                        </div>
-
-                        <button id="register-button" class="mt-2 w-full flex items-center justify-center rounded-lg h-12 bg-gray-800 text-white font-semibold hover:bg-gray-900 transition-all duration-200 shadow-md">
-                            Kayıt Talebi Gönder
-                        </button>
+                        <input type="email" id="register-email-input" class="block w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/20 py-3.5 px-4" placeholder="E-posta Adresiniz">
+                        <input type="password" id="register-password-input" class="block w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/20 py-3.5 px-4" placeholder="Güçlü Bir Şifre">
+                        <input type="password" id="register-confirm-password-input" class="block w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/20 py-3.5 px-4" placeholder="Şifre Tekrar">
+                        <button id="register-button" class="w-full flex items-center justify-center rounded-xl h-14 bg-gray-800 text-white font-bold text-lg hover:bg-gray-900 hover:shadow-lg transition-all duration-300">Kayıt Talebi Gönder</button>
                     </form>
-
-                    <div class="mt-6 text-center">
-                        <p class="text-sm text-gray-600">
-                            Zaten bir hesabın var mı? 
-                            <button id="show-login-view" class="font-bold text-[var(--primary-color)] hover:underline ml-1">Giriş Yap</button>
-                        </p>
-                    </div>
+                    <div class="mt-8 text-center"><p class="text-sm text-gray-600">Zaten hesabınız var mı? <button id="show-login-view" class="font-bold text-teal-700 hover:underline ml-1">Giriş Yap</button></p></div>
                 </div>
-
             </div>
         </div>
     </div>
 
-
     <!-- Student Dashboard Screen -->
-    <div id="student-dashboard-screen" class="screen hidden px-4 sm:px-8 py-6 max-w-7xl mx-auto">
-        <div class="flex flex-col md:flex-row justify-between items-end mb-8 gap-4 border-b border-gray-200 pb-6">
-            <div>
-                <h2 class="text-3xl font-bold text-gray-800">Merhaba, <span id="dashboard-student-name" class="text-[var(--primary-color)]"></span></h2>
-                <p class="text-gray-500 mt-1">Süpervizyon sürecin ve eğitim materyallerin hazır.</p>
-            </div>
-            <div class="flex gap-3">
-                 <!-- Stats or quick actions could go here -->
+    <div id="student-dashboard-screen" class="screen hidden px-4 sm:px-8 py-8 max-w-[1400px] mx-auto">
+        <div class="flex flex-col md:flex-row justify-between items-end mb-10 gap-4 border-b border-gray-200/60 pb-8">
+            <div class="animate-fade-in-up">
+                <h2 class="text-4xl font-bold text-gray-800 tracking-tight">Merhaba, <span id="dashboard-student-name" class="text-transparent bg-clip-text bg-gradient-to-r from-teal-600 to-blue-600">Öğrenci</span> 👋</h2>
+                <p class="text-gray-500 mt-2 text-lg font-medium">Bugün hangi becerini geliştirmek istersin?</p>
             </div>
         </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- Left Column: Main Actions -->
-            <div class="lg:col-span-2 space-y-6">
-                
-                <!-- 1. Quick Action Cards -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- Main Content Area -->
+            <div class="lg:col-span-8 space-y-8 animate-fade-in-up" style="animation-delay: 0.1s;">
+                <!-- Quick Action Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Continue Session -->
-                    <div id="continue-session-card" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-                        <!-- Content injected via JS -->
-                    </div>
-
-                    <!-- Upload Documents -->
-                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow relative overflow-hidden">
-                        <div class="absolute top-0 right-0 p-4 opacity-5">
-                            <span class="material-symbols-outlined text-8xl text-teal-900">upload_file</span>
-                        </div>
-                        <span class="material-symbols-outlined text-4xl text-teal-600 mb-3 bg-teal-50 p-2 rounded-lg">description</span>
-                        <h3 class="text-lg font-bold text-gray-800">Belge Yükle & Analiz</h3>
-                        <p class="text-gray-500 text-sm mt-2 mb-4">Seans transkriptlerini (Word/Metin) yükleyerek yapay zeka analizi alın ve öğretmeninize iletin.</p>
-                        <button id="go-to-analysis-button" class="w-full flex items-center justify-center rounded-lg h-10 bg-teal-50 text-teal-700 font-semibold hover:bg-teal-100 border border-teal-200 transition-all">
-                            <span>Belge Yükle</span>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- 2. Process Tracking -->
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                        <div class="flex items-center gap-2">
-                            <span class="material-symbols-outlined text-gray-500">trending_up</span>
-                            <h3 class="font-bold text-gray-800">Gelişim Sürecim</h3>
-                        </div>
-                         <!-- Tabs for charts could go here -->
-                    </div>
-                    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <div id="progress-tracking-card" class="space-y-4">
-                            <h4 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Son Seans Performansı</h4>
-                            <div id="progress-charts-container" class="space-y-3">
-                                <p class="text-sm text-gray-400 italic">Henüz veri yok.</p>
-                            </div>
-                        </div>
-                        <div id="cumulative-progress-card" class="space-y-4 border-l border-gray-100 md:pl-8">
-                            <h4 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Genel Yetkinlik Ortalaması</h4>
-                            <div id="cumulative-charts-container" class="space-y-3">
-                                <p class="text-sm text-gray-400 italic">Analiz için daha fazla seans tamamlayın.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 3. Recommendations -->
-                <div id="recommendations-card" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                    <div class="flex items-center gap-2 mb-4">
-                        <span class="material-symbols-outlined text-amber-500">lightbulb</span>
-                        <h3 class="font-bold text-gray-800">Size Özel Öneriler</h3>
-                    </div>
-                    <div id="recommendations-container" class="space-y-3"></div>
-                </div>
-            </div>
-
-            <!-- Right Column: Sidebar -->
-            <div class="space-y-6">
-                
-                <!-- Teacher QA -->
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-[500px]">
-                    <div class="p-4 border-b border-gray-100 bg-slate-800 text-white rounded-t-2xl">
-                        <h3 class="font-bold flex items-center gap-2">
-                            <span class="material-symbols-outlined">forum</span>
-                            Dr. Ahmet Erdem ile Soru-Cevap
-                        </h3>
-                    </div>
-                    <div id="teacher-qa-history" class="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
-                        <!-- Chat history -->
-                    </div>
-                    <div class="p-3 border-t border-gray-100 bg-white rounded-b-2xl">
-                        <div class="flex gap-2">
-                            <input type="text" id="student-question-input" placeholder="Bir soru sorun..." class="flex-grow rounded-lg border-gray-300 text-sm focus:border-slate-500 focus:ring-slate-500">
-                            <button id="ask-teacher-button" class="bg-slate-800 text-white rounded-lg px-3 hover:bg-slate-700 transition-colors">
-                                <span class="material-symbols-outlined">send</span>
+                    <div id="continue-session-card" class="glass-panel p-1 rounded-3xl shadow-sm hover:shadow-xl transition-all duration-300 group"></div>
+                    
+                    <div class="glass-panel p-8 rounded-3xl shadow-sm border border-white hover:border-teal-100 hover:shadow-xl transition-all duration-300 relative overflow-hidden group">
+                        <div class="absolute top-0 right-0 w-32 h-32 bg-teal-100 rounded-full blur-3xl opacity-20 -mr-10 -mt-10 group-hover:opacity-40 transition-opacity"></div>
+                        <div class="relative z-10">
+                            <span class="material-symbols-outlined text-4xl text-teal-600 mb-4 bg-teal-50 p-3 rounded-2xl group-hover:scale-110 transition-transform">description</span>
+                            <h3 class="text-xl font-bold text-gray-800 mb-2">Transkript Analizi</h3>
+                            <p class="text-gray-500 text-sm mb-6 leading-relaxed">Seans dökümanlarınızı yükleyin, yapay zeka destekli anlık süpervizyon raporu alın.</p>
+                            <button id="go-to-analysis-button" class="w-full flex items-center justify-center rounded-xl h-11 bg-white border-2 border-teal-100 text-teal-700 font-bold hover:bg-teal-50 hover:border-teal-200 transition-all">
+                                <span>Belge Yükle</span> <span class="material-symbols-outlined text-sm ml-2">upload</span>
                             </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Achievements -->
-                 <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                    <h3 class="font-bold text-gray-800 mb-4 text-sm uppercase text-center">Rozetler</h3>
-                    <div id="achievements-container" class="grid grid-cols-3 gap-2 text-center"></div>
+                <!-- My Simulations List -->
+                <div class="glass-panel rounded-3xl shadow-sm border border-white overflow-hidden">
+                    <div class="p-6 border-b border-gray-100 flex items-center justify-between bg-white/50 backdrop-blur-sm">
+                        <h3 class="font-bold text-gray-800 flex items-center gap-3 text-lg"><span class="material-symbols-outlined text-gray-400">history_edu</span> Geçmiş Aktiviteler</h3>
+                        <div class="flex bg-gray-100/80 p-1.5 rounded-xl">
+                            <button id="tab-sims-active" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-white shadow-sm text-gray-800 transition-all">Devam Eden</button>
+                            <button id="tab-sims-completed" class="px-3 py-1.5 text-xs font-bold rounded-lg text-gray-500 hover:text-gray-700 transition-all">Tamamlanan</button>
+                            <button id="tab-uploads" class="px-3 py-1.5 text-xs font-bold rounded-lg text-gray-500 hover:text-gray-700 transition-all">Analizler</button>
+                        </div>
+                    </div>
+                    <div id="my-simulations-list" class="p-0 min-h-[200px] relative">
+                        <div class="p-8 text-center text-gray-400 italic">Yükleniyor...</div>
+                    </div>
                 </div>
 
+                <!-- Stats -->
+                <div class="glass-panel rounded-3xl shadow-sm border border-white overflow-hidden">
+                    <div class="p-6 border-b border-gray-100 bg-gray-50/50"><h3 class="font-bold text-gray-800 flex items-center gap-2"><span class="material-symbols-outlined text-gray-400">trending_up</span> Yetkinlik Grafiği</h3></div>
+                    <div class="p-8 grid grid-cols-1 md:grid-cols-2 gap-10">
+                        <div id="progress-tracking-card" class="space-y-5">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Son Seans Performansı</h4>
+                            <div id="progress-charts-container" class="space-y-4"><p class="text-sm text-gray-400 italic">Veri yok.</p></div>
+                        </div>
+                        <div id="cumulative-progress-card" class="space-y-5 border-l border-gray-100 md:pl-10">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Kümülatif Ortalama</h4>
+                            <div id="cumulative-charts-container" class="space-y-4"><p class="text-sm text-gray-400 italic">Veri yok.</p></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Sidebar -->
+            <div class="lg:col-span-4 space-y-8 animate-fade-in-up" style="animation-delay: 0.2s;">
+                <!-- Teacher Chat -->
+                <div class="glass-panel rounded-3xl shadow-sm border border-white flex flex-col h-[600px] overflow-hidden">
+                    <div class="p-5 border-b border-gray-100 bg-slate-800 text-white flex items-center justify-between">
+                        <h3 class="font-bold flex items-center gap-3"><span class="material-symbols-outlined text-yellow-400">forum</span> Süpervizör Soru/Cevap</h3>
+                        <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                    </div>
+                    <div id="teacher-qa-history" class="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50 scroll-smooth"></div>
+                    <div class="p-4 border-t border-gray-200 bg-white">
+                        <div class="relative">
+                            <input type="text" id="student-question-input" placeholder="Hocaya bir soru sor..." class="w-full pl-4 pr-12 py-3.5 rounded-2xl border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-slate-800 focus:border-transparent text-sm transition-all shadow-inner">
+                            <button id="ask-teacher-button" class="absolute right-2 top-2 bottom-2 aspect-square bg-slate-800 text-white rounded-xl hover:bg-slate-700 transition-colors flex items-center justify-center"><span class="material-symbols-outlined text-lg">send</span></button>
+                        </div>
+                    </div>
+                </div>
+                
+                 <!-- Resources -->
+                 <div class="glass-panel p-6 rounded-3xl shadow-sm border border-white">
+                    <h3 class="font-bold text-gray-800 mb-5 text-sm uppercase tracking-wider flex items-center gap-2"><span class="material-symbols-outlined text-base">recommend</span> Önerilen Kaynaklar</h3>
+                    <div id="recommendations-container" class="space-y-3"></div>
+                </div>
+
+                 <!-- Badges -->
+                 <div class="glass-panel p-6 rounded-3xl shadow-sm border border-white">
+                    <h3 class="font-bold text-gray-800 mb-5 text-sm uppercase tracking-wider text-center">Başarı Rozetleri</h3>
+                    <div id="achievements-container" class="grid grid-cols-3 gap-3 text-center"></div>
+                </div>
             </div>
         </div>
     </div>
 
-
     <!-- Session Analysis Screen -->
-    <div id="session-analysis-screen" class="screen hidden px-4 py-8 max-w-6xl mx-auto">
-         <div class="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-             <div class="bg-teal-700 p-6 text-white flex justify-between items-center">
-                 <div>
-                    <h2 class="text-2xl font-bold">Belge ve Transkript Analizi</h2>
-                    <p class="text-teal-100 text-sm opacity-80">Seans kayıtlarınızı buraya yükleyerek analiz ettirin ve süpervizöre gönderin.</p>
+    <div id="session-analysis-screen" class="screen hidden px-4 py-8 max-w-6xl mx-auto animate-fade-in-up">
+         <div class="glass-panel rounded-3xl shadow-xl border border-white overflow-hidden min-h-[80vh]">
+             <div class="bg-gradient-to-r from-teal-700 to-teal-900 p-8 text-white flex justify-between items-center relative overflow-hidden">
+                 <div class="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
+                 <div class="relative z-10">
+                     <h2 class="text-3xl font-bold tracking-tight">Transkript Analizi</h2>
+                     <p class="text-teal-100/80 mt-1">Yapay zeka asistanı dosyanızı inceliyor.</p>
                  </div>
-                 <button id="back-to-dashboard-from-analysis" class="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
-                     <span class="material-symbols-outlined">arrow_back</span> Vazgeç
-                 </button>
+                 <button id="back-to-dashboard-from-analysis" class="relative z-10 bg-white/10 hover:bg-white/20 backdrop-blur-md text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 border border-white/10"><span class="material-symbols-outlined">arrow_back</span> Vazgeç</button>
              </div>
-            
-            <div class="p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div class="flex flex-col h-full space-y-4">
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Danışan Rumuzu/Adı</label>
-                            <input type="text" id="analysis-client-name" class="w-full rounded-lg border-gray-300 focus:ring-teal-500 focus:border-teal-500 text-sm" placeholder="Örn: Ayşe K.">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Oturum Numarası</label>
-                            <input type="number" id="analysis-session-number" class="w-full rounded-lg border-gray-300 focus:ring-teal-500 focus:border-teal-500 text-sm" placeholder="Örn: 4">
-                        </div>
+            <div class="p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
+                <div class="flex flex-col h-full space-y-6">
+                    <div class="grid grid-cols-2 gap-5">
+                        <div class="space-y-1"><label class="block text-xs font-bold text-gray-500 uppercase ml-1">Danışan Rumuzu</label><input type="text" id="analysis-client-name" class="w-full rounded-xl border-gray-200 bg-gray-50 text-sm focus:bg-white p-3" placeholder="Örn: Ayşe K."></div>
+                        <div class="space-y-1"><label class="block text-xs font-bold text-gray-500 uppercase ml-1">Oturum No</label><input type="number" id="analysis-session-number" class="w-full rounded-xl border-gray-200 bg-gray-50 text-sm focus:bg-white p-3" placeholder="Örn: 4"></div>
                     </div>
-
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-2">Döküman Yükle (.docx) veya Metin Yapıştır</label>
-                        <div class="flex items-center justify-center w-full mb-2">
-                            <label for="file-upload" class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                                <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                                    <span class="material-symbols-outlined text-gray-400 text-3xl mb-2">upload_file</span>
-                                    <p class="text-sm text-gray-500"><span class="font-semibold">Word Dosyası Yükle</span> (.docx)</p>
+                        <div class="flex items-center justify-center w-full mb-3">
+                            <label for="file-upload" class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-2xl cursor-pointer bg-gray-50 hover:bg-teal-50 hover:border-teal-400 transition-all group">
+                                <div class="flex flex-col items-center justify-center group-hover:-translate-y-1 transition-transform">
+                                    <span class="material-symbols-outlined text-gray-400 text-3xl mb-2 group-hover:text-teal-500">upload_file</span>
+                                    <p class="text-sm font-bold text-gray-600">Word Dosyasını Buraya Bırakın</p>
+                                    <p class="text-xs text-gray-400 mt-1">.docx formatı destekleniyor</p>
                                 </div>
                                 <input id="file-upload" type="file" accept=".docx" class="hidden" />
                             </label>
                         </div>
-                        <div class="relative flex-grow">
-                            <textarea id="transcript-input" class="w-full h-64 p-4 rounded-xl border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-sm leading-relaxed bg-gray-50 resize-none font-mono" placeholder="Veya metni buraya yapıştırın...&#x0a;Terapist: Merhaba...&#x0a;Danışan: ..."></textarea>
+                        <textarea id="transcript-input" class="w-full h-72 p-5 rounded-2xl border-gray-200 text-sm bg-white shadow-inner resize-none font-mono leading-relaxed focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all" placeholder="Veya metni buraya yapıştırın..."></textarea>
+                    </div>
+                    <button id="analyze-transcript-button" class="w-full flex items-center justify-center rounded-xl h-14 bg-gradient-to-r from-teal-600 to-teal-500 text-white font-bold text-lg hover:shadow-lg hover:shadow-teal-500/30 transition-all transform hover:-translate-y-0.5">
+                        <span class="material-symbols-outlined mr-2">auto_awesome</span> Analizi Başlat
+                    </button>
+                </div>
+                <div class="flex flex-col h-full bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                     <div class="p-4 bg-gray-50 border-b border-gray-200 flex items-center gap-2"><div class="w-3 h-3 rounded-full bg-red-400"></div><div class="w-3 h-3 rounded-full bg-yellow-400"></div><div class="w-3 h-3 rounded-full bg-green-400"></div><span class="ml-2 text-xs font-bold text-gray-400 uppercase">Analiz Raporu</span></div>
+                    <div id="analysis-output" class="flex-1 prose prose-sm max-w-none p-6 overflow-y-auto custom-scrollbar leading-relaxed">
+                        <div class="h-full flex flex-col items-center justify-center text-gray-300">
+                            <span class="material-symbols-outlined text-6xl mb-4 opacity-20">analytics</span>
+                            <p>Henüz analiz yapılmadı.</p>
                         </div>
                     </div>
-                    
-                    <button id="analyze-transcript-button" class="w-full flex items-center justify-center rounded-xl h-12 px-6 bg-teal-600 text-white font-bold hover:bg-teal-700 transition-all shadow-md hover:shadow-lg">
-                        <span class="material-symbols-outlined mr-2">analytics</span>
-                        <span>Yapay Zeka Analizini Başlat</span>
-                    </button>
-                </div>
-
-                <div class="flex flex-col h-full bg-slate-50 rounded-xl border border-gray-200 p-1">
-                     <label class="block text-sm font-semibold text-gray-700 m-3 mb-1">2. Analiz Raporu</label>
-                    <div id="analysis-output" class="prose prose-sm max-w-none p-4 overflow-y-auto h-96 custom-scrollbar">
-                         <div class="flex flex-col items-center justify-center h-full text-gray-400">
-                             <span class="material-symbols-outlined text-5xl mb-2 opacity-20">science</span>
-                             <p>Analiz sonuçları burada görüntülenecektir.</p>
-                         </div>
-                    </div>
-                    <div class="p-3 border-t border-gray-200 bg-white rounded-b-lg">
-                        <button id="send-to-teacher-button" class="hidden w-full flex items-center justify-center rounded-lg h-11 px-6 bg-amber-600 text-white font-semibold hover:bg-amber-700 transition-all shadow-sm">
-                            <span class="material-symbols-outlined mr-2">send</span>
-                            <span>Raporu Dr. Ahmet Erdem'e Gönder</span>
-                        </button>
+                    <!-- Auto-send feedback area -->
+                    <div id="analysis-status-message" class="hidden p-4 border-t border-gray-200 bg-green-50 text-green-700 text-sm font-bold text-center flex items-center justify-center gap-2">
+                         <span class="material-symbols-outlined">check_circle</span> Analiz kaydedildi ve süpervizöre iletildi.
                     </div>
                 </div>
             </div>
          </div>
     </div>
 
-
-
-    <!-- Problem Selection Screen -->
-    <div id="problem-selection-screen" class="screen hidden px-4 py-8 max-w-7xl mx-auto">
-        <div class="text-center mb-10">
-            <h2 class="text-3xl font-bold text-gray-900">Simülasyon Senaryosu Seçin</h2>
-            <p class="text-gray-500 mt-2">Pratik yapmak istediğiniz vaka örneğini belirleyin.</p>
+    <!-- Problem Selection -->
+    <div id="problem-selection-screen" class="screen hidden px-4 py-12 max-w-7xl mx-auto animate-fade-in-up">
+        <div class="text-center mb-16 relative">
+            <h2 class="text-4xl sm:text-5xl font-black text-slate-800 tracking-tight">Senaryo Kütüphanesi</h2>
+            <p class="text-slate-500 mt-3 text-lg">Uzmanlaşmak istediğiniz vaka tipini seçerek simülasyona başlayın.</p>
+            <div class="absolute left-1/2 -translate-x-1/2 bottom-0 w-24 h-1 bg-gradient-to-r from-transparent via-teal-400 to-transparent mt-8"></div>
         </div>
-        <div id="problem-selection-container" class="space-y-12">
+        <div id="problem-selection-container" class="space-y-16">
             <div>
-                 <div class="flex items-center gap-2 mb-6 border-b border-gray-200 pb-2">
-                     <span class="material-symbols-outlined text-teal-600">cases</span>
-                     <h3 class="text-xl font-bold text-gray-800">Temel Vakalar</h3>
-                 </div>
-                <div id="default-scenarios-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <!-- Default Scenarios Loaded Here -->
-                </div>
+                <div class="flex items-center gap-3 mb-8"><span class="p-2 bg-teal-100 rounded-lg text-teal-700 material-symbols-outlined">cases</span><h3 class="text-2xl font-bold text-gray-800">Temel Vakalar</h3></div>
+                <div id="default-scenarios-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"></div>
             </div>
             <div id="custom-scenarios-section" class="hidden">
-                <div class="flex items-center gap-2 mb-6 border-b border-gray-200 pb-2">
-                    <span class="material-symbols-outlined text-amber-600">assignment_add</span>
-                    <h3 class="text-xl font-bold text-gray-800">Atanan Özel Senaryolar</h3>
-                </div>
-                <div id="custom-scenarios-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <!-- Custom Scenarios Loaded Here -->
-                </div>
+                <div class="flex items-center gap-3 mb-8"><span class="p-2 bg-amber-100 rounded-lg text-amber-700 material-symbols-outlined">assignment_add</span><h3 class="text-2xl font-bold text-gray-800">Özel Atamalar</h3></div>
+                <div id="custom-scenarios-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"></div>
             </div>
         </div>
     </div>
 
-
-    <!-- Main Simulation Screen -->
-    <div id="simulation-screen" class="screen hidden px-4 py-6 max-w-5xl mx-auto h-full flex flex-col">
-        <div class="flex flex-col gap-1 text-center mb-4 flex-none">
-            <h2 class="text-gray-900 text-2xl font-bold flex items-center justify-center gap-2">
-                <span class="material-symbols-outlined text-teal-600">smart_toy</span>
-                BDT Simülasyonu
-            </h2>
-            <p class="text-gray-500 text-sm">
-                Danışan: <span class="font-semibold text-teal-700">Elif</span> | Konu: <span id="current-problem-display" class="font-semibold text-teal-700"></span>
-            </p>
-        </div>
-
-        <div class="bg-white rounded-2xl flex-1 flex flex-col shadow-xl border border-gray-200 overflow-hidden relative">
-            <!-- Chat Area -->
-            <div class="p-4 sm:p-6 space-y-6 flex-1 overflow-y-auto bg-slate-50" id="chat-container">
-                <!-- Messages will be appended here -->
-            </div>
-            
-            <!-- Feedback Overlay (Bottom Sheet style inside container) -->
-            <div id="feedback-section" class="hidden border-t border-gray-200 bg-white">
-                 <div class="bg-indigo-50 px-4 py-2 border-b border-indigo-100 flex justify-between items-center">
-                     <span class="text-xs font-bold text-indigo-800 uppercase tracking-wide flex items-center gap-1"><span class="material-symbols-outlined text-sm">analytics</span> Süpervizör Analizi</span>
-                 </div>
-                 <div class="p-4 grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="md:col-span-2">
-                        <p id="feedback-text" class="text-sm text-gray-700 leading-relaxed"></p>
-                    </div>
-                    <div class="space-y-3 border-l border-gray-100 pl-4">
-                        <div class="w-full"><div class="flex justify-between text-xs mb-1"><span>Empati</span><span class="font-bold text-fuchsia-600" id="val-empathy">0</span></div><div class="h-1.5 bg-gray-100 rounded-full"><div id="skill-empathy-bar" class="h-1.5 rounded-full bg-fuchsia-500 transition-all duration-500" style="width: 0%;"></div></div></div>
-                        <div class="w-full"><div class="flex justify-between text-xs mb-1"><span>Teknik</span><span class="font-bold text-amber-600" id="val-technique">0</span></div><div class="h-1.5 bg-gray-100 rounded-full"><div id="skill-technique-bar" class="h-1.5 rounded-full bg-amber-500 transition-all duration-500" style="width: 0%;"></div></div></div>
-                        <div class="w-full"><div class="flex justify-between text-xs mb-1"><span>Danışan Rahatlaması</span><span class="font-bold text-green-600" id="val-relief">0</span></div><div class="h-1.5 bg-gray-100 rounded-full"><div id="impact-emotion-bar" class="h-1.5 rounded-full bg-green-500 transition-all duration-500" style="width: 0%;"></div></div></div>
-                    </div>
-                 </div>
-            </div>
-
-            <!-- Interaction Area -->
-            <div class="p-4 bg-white border-t border-gray-200 z-10">
-                <p class="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide ml-1">Yanıt Seçenekleri</p>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4" id="options-container">
-                    <!-- Options -->
-                </div>
-                
-                <div class="relative">
-                    <input type="text" id="custom-response-input" class="w-full rounded-full border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500 pr-12 py-3 pl-5" placeholder="Kendi yanıtınızı yazın...">
-                    <button id="send-custom-response-button" class="absolute right-1 top-1 bottom-1 bg-teal-600 text-white rounded-full w-10 h-10 flex items-center justify-center hover:bg-teal-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                        <span class="material-symbols-outlined text-xl">send</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Teacher Dashboard Screen -->
-    <div id="teacher-dashboard-screen" class="screen hidden px-4 py-6 max-w-7xl mx-auto">
-        <div class="flex justify-between items-center mb-6">
-            <h2 class="text-2xl font-bold text-gray-800">Yönetim Paneli</h2>
-            <div class="text-sm text-gray-500 bg-white px-3 py-1 rounded-full border border-gray-200">
-                Admin: Dr. Ahmet Erdem
-            </div>
-        </div>
+    <!-- SIMULATION SCREEN -->
+    <div id="simulation-screen" class="screen hidden w-full h-full bg-[#f0f4f8] flex flex-col">
         
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 min-h-[600px] flex flex-col md:flex-row overflow-hidden">
-            <!-- Sidebar Navigation -->
-            <nav class="w-full md:w-64 bg-gray-50 border-r border-gray-200 p-4 flex flex-col gap-1">
-                <button data-tab="requests" class="teacher-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors hover:bg-white hover:shadow-sm">
-                    <span class="material-symbols-outlined text-gray-500">person_add</span> Kayıt İstekleri
-                </button>
-                <button data-tab="simulations" class="teacher-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors hover:bg-white hover:shadow-sm">
-                    <span class="material-symbols-outlined text-gray-500">visibility</span> Öğrenci Profilleri
-                </button>
-                <button data-tab="uploads" class="teacher-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors hover:bg-white hover:shadow-sm">
-                    <span class="material-symbols-outlined text-gray-500">file_present</span> Belge Kontrolü
-                </button>
-                <button data-tab="questions" class="teacher-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors hover:bg-white hover:shadow-sm">
-                    <span class="material-symbols-outlined text-gray-500">help</span> Sorular
-                </button>
-                <button data-tab="analytics" class="teacher-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors hover:bg-white hover:shadow-sm">
-                    <span class="material-symbols-outlined text-gray-500">monitoring</span> Sınıf Analitiği
-                </button>
-                <button data-tab="builder" class="teacher-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors hover:bg-white hover:shadow-sm">
-                    <span class="material-symbols-outlined text-gray-500">construction</span> Senaryo Üret
-                </button>
-                <button data-tab="library" class="teacher-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors hover:bg-white hover:shadow-sm">
-                    <span class="material-symbols-outlined text-gray-500">library_books</span> Kaynaklar
-                </button>
-                <div class="flex-grow"></div>
-                <button data-tab="settings" class="teacher-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors hover:bg-white hover:shadow-sm text-gray-600">
-                    <span class="material-symbols-outlined text-gray-500">settings</span> Ayarlar
-                </button>
-            </nav>
-
-            <!-- Content Area -->
-            <div id="teacher-content-container" class="flex-1 p-6 md:p-8 overflow-y-auto bg-white">
-                <div id="requests-content" class="teacher-content">
-                    <h3 class="text-xl font-bold mb-4">Bekleyen Kayıt İstekleri</h3>
-                    <div id="requests-list-container" class="space-y-3"></div>
-                </div>
-                <!-- Other contents remain structurally similar but cleaner -->
-                <div id="simulations-content" class="teacher-content hidden"></div>
-                <div id="uploads-content" class="teacher-content hidden">
-                    <div id="uploads-list-container" class="space-y-4"></div>
-                </div>
-                <div id="questions-content" class="teacher-content hidden">
-                     <div id="questions-list-container" class="space-y-6"></div>
-                </div>
-                <div id="analytics-content" class="teacher-content hidden"></div>
-                <div id="builder-content" class="teacher-content hidden"></div>
-                <div id="library-content" class="teacher-content hidden"></div>
-                <div id="settings-content" class="teacher-content hidden"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Teacher Reviews (Refactored to Full Student Profile) -->
-    <div id="teacher-review-screen" class="screen hidden px-4 py-6 max-w-7xl mx-auto">
-        <!-- Profile List View (Used when selecting a student to view detail) -->
-        <div id="teacher-review-list-view" class="hidden w-full bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-            <!-- Content populated dynamically -->
+        <!-- Toolbar -->
+        <div class="bg-white/80 backdrop-blur-md border-b border-gray-200 px-6 py-3 flex items-center justify-between shadow-sm z-30 sticky top-0">
+             <div class="flex items-center gap-4">
+                 <button id="sim-back-btn" class="flex items-center gap-2 text-gray-500 hover:text-gray-900 transition-colors text-sm font-bold bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg">
+                     <span class="material-symbols-outlined text-lg">arrow_back</span> Çıkış
+                 </button>
+                 <div class="h-8 w-px bg-gray-200"></div>
+                 <div>
+                     <h2 class="font-bold text-gray-800 text-sm flex items-center gap-2">
+                         <span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
+                         Canlı Simülasyon
+                     </h2>
+                     <p class="text-xs text-gray-500 font-medium mt-0.5">Vaka: <span id="current-problem-display" class="text-teal-700"></span></p>
+                 </div>
+             </div>
+             <div class="flex items-center gap-3">
+                 <button id="sim-cbt-help-btn" class="hidden md:flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 rounded-xl text-xs font-bold border border-amber-200 hover:bg-amber-100 transition-all shadow-sm">
+                     <span class="material-symbols-outlined text-base">lightbulb</span> BDT İpuçları
+                 </button>
+                 <button id="sim-save-exit-btn" class="flex items-center gap-2 px-5 py-2 bg-teal-600 text-white rounded-xl text-xs font-bold hover:bg-teal-700 transition-all shadow-md shadow-teal-500/20">
+                     <span class="material-symbols-outlined text-base">save</span> Kaydet & Bitir
+                 </button>
+             </div>
         </div>
 
-        <!-- Student Detail Profile View -->
-        <div id="teacher-review-detail-view" class="w-full flex flex-col h-[85vh] bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+        <!-- Workspace -->
+        <div class="flex-1 flex overflow-hidden relative">
             
-            <!-- Profile Header -->
-             <div class="p-6 border-b border-gray-200 bg-slate-50 flex justify-between items-center">
-                <div class="flex items-center gap-4">
-                    <button id="back-to-teacher-dashboard-button" class="bg-white border border-gray-300 p-2 rounded-lg hover:bg-gray-100 transition-colors shadow-sm"><span class="material-symbols-outlined text-gray-600">arrow_back</span></button>
-                    <div>
-                         <h2 class="text-2xl font-bold text-gray-800" id="review-student-name"></h2>
-                         <p class="text-sm text-gray-500 flex items-center gap-1"><span class="material-symbols-outlined text-sm">email</span> <span id="review-student-email"></span></p>
+            <!-- Sidebar -->
+            <div class="w-80 bg-white border-r border-gray-200 flex-col hidden lg:flex shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20">
+                <div class="p-6 border-b border-gray-100">
+                    <h3 class="font-bold text-gray-800 text-xs uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-indigo-500">monitoring</span> Performans Metrikleri
+                    </h3>
+                    <div class="space-y-6">
+                         <!-- Bars with clearer visualization -->
+                         <div class="group">
+                             <div class="flex justify-between text-xs mb-2 font-bold">
+                                 <span class="text-gray-500 group-hover:text-fuchsia-600 transition-colors">Empati</span>
+                                 <span class="bg-fuchsia-50 text-fuchsia-700 px-1.5 rounded" id="live-val-empathy">0.0</span>
+                             </div>
+                             <div class="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden shadow-inner">
+                                 <div id="live-bar-empathy" class="h-full bg-gradient-to-r from-fuchsia-400 to-fuchsia-600 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
+                             </div>
+                         </div>
+                         <div class="group">
+                             <div class="flex justify-between text-xs mb-2 font-bold">
+                                 <span class="text-gray-500 group-hover:text-amber-600 transition-colors">Teknik</span>
+                                 <span class="bg-amber-50 text-amber-700 px-1.5 rounded" id="live-val-technique">0.0</span>
+                             </div>
+                             <div class="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden shadow-inner">
+                                 <div id="live-bar-technique" class="h-full bg-gradient-to-r from-amber-400 to-amber-600 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
+                             </div>
+                         </div>
+                         <div class="group">
+                             <div class="flex justify-between text-xs mb-2 font-bold">
+                                 <span class="text-gray-500 group-hover:text-teal-600 transition-colors">İttifak</span>
+                                 <span class="bg-teal-50 text-teal-700 px-1.5 rounded" id="live-val-rapport">0.0</span>
+                             </div>
+                             <div class="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden shadow-inner">
+                                 <div id="live-bar-rapport" class="h-full bg-gradient-to-r from-teal-400 to-teal-600 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
+                             </div>
+                         </div>
                     </div>
                 </div>
-                <div class="flex gap-2">
-                    <div class="text-center px-4 py-2 bg-white rounded-lg border border-gray-200">
-                        <span class="block text-xl font-bold text-teal-600" id="stat-completed-sessions">0</span>
-                        <span class="text-xs text-gray-400 uppercase">Tamamlanan</span>
+
+                <div class="p-6 flex-1 overflow-y-auto">
+                    <h3 class="font-bold text-gray-800 text-xs uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-amber-500">construction</span> Araç Çantası
+                    </h3>
+                    <div class="space-y-3">
+                        <button onclick="showCbtTool('socratic')" class="w-full text-left p-4 rounded-xl border border-gray-100 bg-gray-50 hover:bg-white hover:border-teal-200 hover:shadow-md transition-all text-xs font-bold text-gray-700 flex items-center justify-between group">
+                            Sokratik Sorular <span class="material-symbols-outlined text-gray-300 group-hover:text-teal-500 text-sm transition-colors">chevron_right</span>
+                        </button>
+                        <button onclick="showCbtTool('distortions')" class="w-full text-left p-4 rounded-xl border border-gray-100 bg-gray-50 hover:bg-white hover:border-teal-200 hover:shadow-md transition-all text-xs font-bold text-gray-700 flex items-center justify-between group">
+                            Bilişsel Çarpıtmalar <span class="material-symbols-outlined text-gray-300 group-hover:text-teal-500 text-sm transition-colors">chevron_right</span>
+                        </button>
+                        <button onclick="showCbtTool('abc')" class="w-full text-left p-4 rounded-xl border border-gray-100 bg-gray-50 hover:bg-white hover:border-teal-200 hover:shadow-md transition-all text-xs font-bold text-gray-700 flex items-center justify-between group">
+                            ABC Kaydı (İnteraktif) <span class="material-symbols-outlined text-gray-300 group-hover:text-teal-500 text-sm transition-colors">chevron_right</span>
+                        </button>
                     </div>
-                    <div class="text-center px-4 py-2 bg-white rounded-lg border border-gray-200">
-                         <span class="block text-xl font-bold text-amber-600" id="stat-incomplete-sessions">0</span>
-                         <span class="text-xs text-gray-400 uppercase">Yarım Kalan</span>
+                    
+                    <div class="mt-8 p-5 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl border border-indigo-100 relative overflow-hidden">
+                        <div class="absolute -right-4 -top-4 w-16 h-16 bg-indigo-200 rounded-full blur-xl opacity-50"></div>
+                        <h4 class="text-indigo-900 text-xs font-black uppercase mb-2 relative z-10">AI Süpervizör Notu</h4>
+                        <p id="live-feedback-text" class="text-xs text-indigo-800 leading-relaxed font-medium relative z-10">Simülasyon başlatılıyor. İlk hamlenizi yapın.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Tabs -->
-            <div class="flex border-b border-gray-200 px-6 bg-white">
-                <button class="profile-tab px-4 py-3 text-sm font-medium border-b-2 border-teal-600 text-teal-700" data-target="profile-simulations">Simülasyonlar</button>
-                <button class="profile-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-target="profile-uploads">Yüklenen Belgeler</button>
-                <button class="profile-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-target="profile-questions">Sorular & Cevaplar</button>
-            </div>
-
-            <!-- Content Area -->
-            <div class="flex-1 overflow-y-auto p-6 bg-gray-50">
+            <!-- Chat Area -->
+            <div class="flex-1 flex flex-col bg-[#f0f4f8] relative">
+                <!-- Chat Messages -->
+                <div id="chat-container" class="flex-1 overflow-y-auto p-4 sm:p-8 space-y-6 scroll-smooth">
+                    <!-- Messages go here -->
+                </div>
                 
-                <!-- 1. Simulations Tab -->
-                <div id="profile-simulations" class="profile-content space-y-4">
-                     <!-- Sim List injected here -->
+                <!-- Typing Indicator (Hidden by default) -->
+                <div id="typing-indicator" class="hidden px-8 pb-4 animate-fade-in-up">
+                    <div class="bg-white border border-gray-100 rounded-2xl rounded-bl-sm p-4 w-24 shadow-sm flex gap-1.5 items-center justify-center">
+                        <div class="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
+                        <div class="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
+                        <div class="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
+                    </div>
                 </div>
 
-                <!-- 2. Uploads Tab -->
-                <div id="profile-uploads" class="profile-content hidden space-y-4">
-                     <!-- Uploads List injected here -->
+                <!-- Input Area -->
+                <div class="bg-white/90 backdrop-blur border-t border-gray-200 p-4 sm:p-6 z-10">
+                     <div class="max-w-4xl mx-auto w-full">
+                         <!-- Suggestions -->
+                         <div id="options-container" class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 min-h-[60px]"></div>
+                         
+                         <!-- Custom Input -->
+                         <div class="relative flex items-center gap-3 bg-white p-1 rounded-2xl border border-gray-200 shadow-sm focus-within:ring-2 focus-within:ring-teal-500/20 focus-within:border-teal-500 transition-all">
+                            <input type="text" id="custom-response-input" class="flex-1 border-none focus:ring-0 text-sm bg-transparent px-4 py-3" placeholder="Danışana ne söylemek istersiniz?">
+                            
+                            <div class="flex gap-1 pr-1">
+                                <button id="voice-input-button" class="p-3 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-all" title="Sesli Konuş"><span class="material-symbols-outlined text-xl">mic</span></button>
+                                <button id="send-custom-response-button" class="p-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 shadow-md shadow-teal-500/20 transition-all disabled:opacity-50 disabled:shadow-none"><span class="material-symbols-outlined text-xl">send</span></button>
+                            </div>
+                        </div>
+                     </div>
                 </div>
+            </div>
 
-                 <!-- 3. Questions Tab -->
-                <div id="profile-questions" class="profile-content hidden space-y-4">
-                     <!-- QA List injected here -->
+        </div>
+    </div>
+
+
+    <!-- Teacher Dashboard Screen (Simplified for visual consistency) -->
+    <div id="teacher-dashboard-screen" class="screen hidden px-4 py-8 max-w-[1400px] mx-auto animate-fade-in-up">
+        <div class="glass-panel rounded-3xl shadow-xl overflow-hidden min-h-[700px] flex flex-col md:flex-row border border-white">
+            <nav class="w-full md:w-72 bg-gray-50/80 border-r border-gray-200 p-6 flex flex-col gap-2 backdrop-blur-sm">
+                <div class="mb-8 px-2">
+                    <h2 class="text-xl font-black text-slate-800">Yönetim Paneli</h2>
+                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Süpervizör Modu</p>
                 </div>
-
+                <button data-tab="requests" class="teacher-tab w-full text-left px-5 py-3.5 rounded-xl text-sm font-bold flex items-center gap-3 transition-all"><span class="material-symbols-outlined">person_add</span> Kayıt İstekleri</button>
+                <button data-tab="simulations" class="teacher-tab w-full text-left px-5 py-3.5 rounded-xl text-sm font-bold flex items-center gap-3 transition-all"><span class="material-symbols-outlined">visibility</span> Öğrenci Profilleri</button>
+                <button data-tab="uploads" class="teacher-tab w-full text-left px-5 py-3.5 rounded-xl text-sm font-bold flex items-center gap-3 transition-all"><span class="material-symbols-outlined">file_present</span> Belge Kontrolü</button>
+                <button data-tab="questions" class="teacher-tab w-full text-left px-5 py-3.5 rounded-xl text-sm font-bold flex items-center gap-3 transition-all"><span class="material-symbols-outlined">help</span> Sorular</button>
+            </nav>
+            <div id="teacher-content-container" class="flex-1 p-8 md:p-10 overflow-y-auto bg-white/50">
+                <div id="requests-content" class="teacher-content"><h3 class="text-2xl font-bold mb-6 text-gray-800">Bekleyen Kayıt İstekleri</h3><div id="requests-list-container" class="space-y-4"></div></div>
+                <div id="simulations-content" class="teacher-content hidden"></div>
+                <div id="uploads-content" class="teacher-content hidden"><div id="uploads-list-container" class="space-y-4"></div></div>
+                <div id="questions-content" class="teacher-content hidden"><div id="questions-list-container" class="space-y-6"></div></div>
             </div>
         </div>
     </div>
 
-    <!-- Upload Review Screen (Kept separate for detailed text analysis) -->
-    <div id="teacher-upload-review-screen" class="screen hidden px-4 py-6 max-w-6xl mx-auto">
-         <div class="flex items-center gap-4 mb-6">
-            <button id="back-to-dashboard-from-upload-review" class="bg-white border border-gray-300 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-gray-50">Geri Dön</button>
-            <h2 class="text-2xl font-bold">Döküman İnceleme: <span id="upload-review-student-name" class="text-teal-600"></span></h2>
-         </div>
-         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[75vh]">
-            <!-- LEFT: Original Transcript -->
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                <div class="p-3 bg-gray-50 border-b border-gray-200 font-semibold text-gray-700 flex justify-between items-center">
-                    <span class="flex items-center gap-2"><span class="material-symbols-outlined text-sm">description</span> Öğrenci Yüklemesi</span>
-                    <span id="upload-meta-display" class="text-xs font-normal text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded"></span>
+    <!-- Teacher Detail Screens (Review & Upload) - Kept mostly same but wrapped in container -->
+    <div id="teacher-review-screen" class="screen hidden px-4 py-8 max-w-7xl mx-auto animate-fade-in-up">
+        <div class="glass-panel rounded-3xl shadow-xl overflow-hidden border border-white min-h-[80vh] flex flex-col">
+            <!-- Header logic same as dashboard -->
+             <div class="p-8 border-b border-gray-200 bg-white/50 flex justify-between items-center">
+                <div class="flex items-center gap-4">
+                    <button id="back-to-teacher-dashboard-button" class="bg-white border border-gray-200 p-2.5 rounded-xl hover:bg-gray-50 transition-colors shadow-sm"><span class="material-symbols-outlined text-gray-600">arrow_back</span></button>
+                    <div><h2 class="text-3xl font-bold text-gray-800" id="review-student-name"></h2><p class="text-sm font-medium text-gray-500" id="review-student-email"></p></div>
                 </div>
-                <div id="upload-review-transcript" class="flex-1 p-6 overflow-y-auto prose prose-sm max-w-none bg-white font-mono text-sm leading-relaxed text-gray-700"></div>
+                <div class="flex gap-3">
+                    <div class="text-center px-5 py-2 bg-white rounded-xl border border-gray-200 shadow-sm"><span class="block text-xl font-black text-teal-600" id="stat-completed-sessions">0</span><span class="text-[10px] font-bold text-gray-400 uppercase">Tamamlanan</span></div>
+                    <div class="text-center px-5 py-2 bg-white rounded-xl border border-gray-200 shadow-sm"><span class="block text-xl font-black text-amber-600" id="stat-incomplete-sessions">0</span><span class="text-[10px] font-bold text-gray-400 uppercase">Devam Eden</span></div>
+                </div>
             </div>
-
-            <!-- RIGHT: AI Analysis & Feedback -->
-            <div class="flex flex-col gap-6 h-full">
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden flex-1">
-                    <div class="p-3 bg-teal-50 border-b border-teal-100 font-semibold text-teal-800 flex items-center gap-2">
-                        <span class="material-symbols-outlined text-sm">psychology</span> AI Analiz Raporu
-                    </div>
-                    <div id="upload-review-analysis" class="flex-1 p-6 overflow-y-auto prose prose-sm max-w-none bg-teal-50/30"></div>
+            <!-- Tabs -->
+            <div class="flex border-b border-gray-200 px-8 bg-white/30 backdrop-blur-sm">
+                <button class="profile-tab px-6 py-4 text-sm font-bold border-b-2 border-teal-600 text-teal-800" data-target="profile-simulations">Simülasyonlar</button>
+                <button class="profile-tab px-6 py-4 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:text-gray-800" data-target="profile-uploads">Yüklemeler</button>
+                <button class="profile-tab px-6 py-4 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:text-gray-800" data-target="profile-questions">Soru & Cevap</button>
+                <button class="profile-tab px-6 py-4 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:text-gray-800" data-target="profile-competency">Yetkinlik Matrisi</button>
+                <button class="profile-tab px-6 py-4 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:text-gray-800" data-target="profile-notes">Özel Notlar</button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-8 bg-gray-50/50">
+                <div id="profile-simulations" class="profile-content space-y-4"></div>
+                <div id="profile-uploads" class="profile-content hidden space-y-4"></div>
+                <div id="profile-questions" class="profile-content hidden space-y-4"></div>
+                <!-- Competency Matrix -->
+                <div id="profile-competency" class="profile-content hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" id="competency-matrix-container"></div>
                 </div>
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 h-auto">
-                    <div id="existing-upload-feedback-display" class="mb-2 text-sm text-gray-600 bg-amber-50 p-2 rounded hidden:empty border border-amber-100"></div>
-                    <h4 class="font-bold text-sm text-gray-800 mb-2">Süpervizör Geri Bildirimi</h4>
-                    <textarea id="upload-feedback-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-sm" rows="3" placeholder="Öğrenciye iletilecek notlarınızı buraya yazın..."></textarea>
-                    <button id="submit-upload-feedback-button" class="mt-2 w-full bg-amber-600 text-white rounded-lg h-9 font-medium hover:bg-amber-700 transition-colors shadow-sm">Kaydet ve Gönder</button>
+                 <!-- Private Notes -->
+                <div id="profile-notes" class="profile-content hidden">
+                    <div class="bg-yellow-50/50 p-6 rounded-2xl border border-yellow-100">
+                        <label class="block text-sm font-bold text-yellow-800 mb-2">Öğrenci Hakkında Özel Notlar</label>
+                        <textarea id="private-notes-input" class="w-full h-40 rounded-xl border-yellow-200 bg-white p-4 text-sm focus:ring-yellow-500/20 focus:border-yellow-500" placeholder="Sadece siz görebilirsiniz..."></textarea>
+                        <button id="save-private-notes-button" class="mt-4 px-6 py-2 bg-yellow-600 text-white font-bold rounded-lg hover:bg-yellow-700 text-sm">Notları Kaydet</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="teacher-upload-review-screen" class="screen hidden px-4 py-8 max-w-[1400px] mx-auto animate-fade-in-up">
+        <!-- Keep structure but add glass classes -->
+         <div class="flex items-center gap-4 mb-6">
+            <button id="back-to-dashboard-from-upload-review" class="bg-white border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-50 shadow-sm">Geri Dön</button>
+            <h2 class="text-2xl font-black text-gray-800">Döküman İnceleme</h2>
+         </div>
+         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[80vh]">
+            <div class="glass-panel rounded-2xl shadow-sm border border-white flex flex-col overflow-hidden">
+                <div class="p-4 bg-gray-50/80 border-b border-gray-200 font-bold text-gray-700 flex justify-between items-center backdrop-blur-sm"><span class="flex items-center gap-2"><span class="material-symbols-outlined text-sm">description</span> Orijinal Transkript</span><span id="upload-meta-display" class="text-[10px] font-bold text-gray-500 bg-white border border-gray-200 px-2 py-1 rounded-md uppercase tracking-wider"></span></div>
+                <div id="upload-review-transcript" class="flex-1 p-8 overflow-y-auto prose prose-sm max-w-none bg-white font-mono text-sm leading-relaxed text-gray-700 selection:bg-yellow-200"></div>
+            </div>
+            <div class="flex flex-col gap-8 h-full">
+                <div class="glass-panel rounded-2xl shadow-sm border border-white flex flex-col overflow-hidden flex-1">
+                    <div class="p-4 bg-teal-50/80 border-b border-teal-100 font-bold text-teal-800 flex items-center gap-2 backdrop-blur-sm"><span class="material-symbols-outlined text-sm">psychology</span> AI Analiz Raporu</div>
+                    <div id="upload-review-analysis" class="flex-1 p-8 overflow-y-auto prose prose-sm max-w-none bg-teal-50/20"></div>
+                </div>
+                <div class="glass-panel rounded-2xl shadow-sm border border-white p-6 h-auto">
+                    <h4 class="font-bold text-sm text-gray-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-amber-500">rate_review</span> Süpervizör Geri Bildirimi</h4>
+                    <div id="existing-upload-feedback-display" class="mb-4 text-sm text-gray-700 bg-amber-50 p-4 rounded-xl hidden:empty border border-amber-100"></div>
+                    <textarea id="upload-feedback-input" class="w-full rounded-xl border-gray-200 shadow-inner focus:border-amber-500 focus:ring-amber-500 text-sm bg-gray-50 p-4" rows="3" placeholder="Öğrenciye iletilecek notlar..."></textarea>
+                    <button id="submit-upload-feedback-button" class="mt-3 w-full bg-amber-600 text-white rounded-xl h-10 font-bold hover:bg-amber-700 transition-colors shadow-lg shadow-amber-500/20">Kaydet ve Gönder</button>
                 </div>
             </div>
          </div>
@@ -713,31 +623,72 @@
 
 </main>
 
-<!-- Modals -->
-<div id="rationale-modal" class="modal hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full relative p-6 animate-fade-in-up border-t-4 border-teal-500">
-        <button id="close-modal-button" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 transition-colors">
-            <span class="material-symbols-outlined">close</span>
-        </button>
-        <div class="flex items-center gap-3 mb-4">
-            <div class="bg-teal-100 p-2 rounded-full"><span class="material-symbols-outlined text-teal-600">lightbulb</span></div>
-            <h3 id="modal-title" class="text-lg font-bold text-gray-800">Terapötik Gerekçe</h3>
+<!-- Modals with Glassmorphism -->
+<div id="rationale-modal" class="modal hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white/95 rounded-3xl shadow-2xl max-w-lg w-full relative p-8 animate-pop border border-white">
+        <button id="close-modal-button" class="absolute top-4 right-4 bg-gray-100 rounded-full p-1 text-gray-400 hover:text-gray-800 hover:bg-gray-200 transition-colors"><span class="material-symbols-outlined">close</span></button>
+        <div class="flex items-center gap-3 mb-6"><div class="bg-amber-100 p-2.5 rounded-xl"><span class="material-symbols-outlined text-amber-600">lightbulb</span></div><h3 class="text-xl font-bold text-gray-800">Terapötik Gerekçe</h3></div>
+        <div id="modal-content" class="text-gray-600 leading-loose text-sm font-medium"></div>
+    </div>
+</div>
+
+<div id="reflection-modal" class="modal hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full relative p-8 animate-pop border-t-8 border-indigo-500">
+        <div class="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
+            <div class="bg-indigo-100 p-2.5 rounded-xl"><span class="material-symbols-outlined text-indigo-600 text-3xl">psychology_alt</span></div>
+            <div>
+                <h3 class="text-xl font-bold text-gray-800">Öz-Yansıtma Günlüğü</h3>
+                <p class="text-xs text-gray-500 font-medium">Seans sonrası içgörülerinizi kaydedin.</p>
+            </div>
         </div>
-        <div id="modal-content" class="text-gray-600 leading-relaxed text-sm"></div>
+        <div class="space-y-6">
+            <div>
+                <label class="block text-xs font-bold text-gray-500 uppercase mb-2 ml-1">İyi Giden Noktalar</label>
+                <textarea id="reflection-good" class="w-full rounded-2xl border-gray-200 text-sm focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 p-4 bg-gray-50" rows="2" placeholder="Örn: Empatik dinlemeyi iyi sürdürdüm..."></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-500 uppercase mb-2 ml-1">Gelişim Alanları</label>
+                <textarea id="reflection-bad" class="w-full rounded-2xl border-gray-200 text-sm focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 p-4 bg-gray-50" rows="2" placeholder="Örn: Sokratik sorgulamada tıkandım..."></textarea>
+            </div>
+        </div>
+        <div class="flex justify-end gap-3 mt-8">
+            <button id="cancel-save-button" class="px-5 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">Vazgeç</button>
+            <button id="confirm-save-button" class="px-8 py-2.5 text-sm bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-500/30 transition-all hover:scale-105">Kaydet & Bitir</button>
+        </div>
     </div>
 </div>
 
-<div id="ai-summary-modal" class="modal hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full relative p-6 animate-fade-in-up">
-        <button id="close-summary-modal-button" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 transition-colors">
-            <span class="material-symbols-outlined">close</span>
-        </button>
-        <h3 id="summary-modal-title" class="text-xl font-bold text-gray-800 mb-4">AI Performans Özeti</h3>
-        <div id="summary-modal-content" class="text-gray-600 prose prose-sm max-w-none h-80 overflow-y-auto custom-scrollbar bg-gray-50 p-4 rounded-lg"></div>
+<div id="history-modal" class="modal hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-4xl w-full h-[85vh] relative flex flex-col animate-fade-in-up overflow-hidden border border-white">
+        <div class="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50/80 backdrop-blur-sm">
+            <h3 class="text-xl font-black text-gray-800 flex items-center gap-2"><span class="material-symbols-outlined text-gray-400">history</span> Seans Geçmişi</h3>
+            <button onclick="document.getElementById('history-modal').classList.add('hidden')" class="bg-gray-200 hover:bg-gray-300 rounded-full p-1.5 transition-colors"><span class="material-symbols-outlined text-gray-600">close</span></button>
+        </div>
+        <div id="history-modal-content" class="flex-1 overflow-y-auto p-8 bg-slate-50 space-y-6"></div>
     </div>
 </div>
 
-<div id="notification-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2"></div>
+<div id="student-upload-modal" class="modal hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-5xl w-full h-[85vh] relative flex flex-col animate-fade-in-up overflow-hidden border border-white">
+        <div class="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50/80 backdrop-blur-sm">
+            <h3 class="text-xl font-black text-gray-800 flex items-center gap-2"><span class="material-symbols-outlined text-gray-400">description</span> Belge Analizi & Geri Bildirim</h3>
+            <button onclick="document.getElementById('student-upload-modal').classList.add('hidden')" class="bg-gray-200 hover:bg-gray-300 rounded-full p-1.5 transition-colors"><span class="material-symbols-outlined text-gray-600">close</span></button>
+        </div>
+        <div id="student-upload-content" class="flex-1 overflow-y-auto p-8 bg-slate-50"></div>
+    </div>
+</div>
+
+<div id="cbt-helper-modal" class="modal hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full h-[80vh] relative flex flex-col animate-pop overflow-hidden">
+        <div class="flex items-center justify-between p-6 border-b border-gray-200 bg-amber-50">
+            <h3 id="cbt-helper-title" class="text-xl font-black text-amber-900 flex items-center gap-2"><span class="material-symbols-outlined">lightbulb</span> BDT Araç Kutusu</h3>
+            <button onclick="document.getElementById('cbt-helper-modal').classList.add('hidden')" class="bg-white/50 hover:bg-white rounded-full p-2 text-amber-900 transition-colors"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        <div id="cbt-helper-content" class="p-8 overflow-y-auto prose prose-sm max-w-none text-gray-700"></div>
+    </div>
+</div>
+
+<div id="notification-container" class="fixed bottom-6 right-6 z-[60] flex flex-col gap-3"></div>
 
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
