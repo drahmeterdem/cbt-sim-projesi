@@ -183,7 +183,7 @@ export async function getSubcollection(parentCollection: string, parentDocId: st
  */
 export async function setDataInSubcollection(parentCollection: string, parentDocId: string, subcollection: string, docId: string, data: any): Promise<void> {
     if (!db) throw new Error("Database not initialized.");
-    await db.collection(parentCollection).doc(parentDocId).collection(subcollection).doc(docId).set(data);
+    await db.collection(parentCollection).doc(parentDocId).collection(subcollection).doc(docId).set(data, { merge: true });
 }
 
 /**
@@ -197,4 +197,69 @@ export async function setDataInSubcollection(parentCollection: string, parentDoc
 export async function updateDataInSubcollection(parentCollection: string, parentDocId: string, subcollection: string, docId: string, data: any): Promise<void> {
     if (!db) throw new Error("Database not initialized.");
     await db.collection(parentCollection).doc(parentDocId).collection(subcollection).doc(docId).update(data);
+}
+
+/**
+ * Retrieves all documents from a collection group (queries across all subcollections with the same ID).
+ * @param collectionId - The ID of the subcollections to query (e.g., 'qas').
+ * @returns An array of document data.
+ */
+export async function getCollectionGroup(collectionId: string): Promise<any[]> {
+    if (!db) throw new Error("Database not initialized.");
+    const snapshot = await db.collectionGroup(collectionId).get();
+    return snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+}
+
+// --- Real-time Listeners ---
+
+/**
+ * Subscribes to changes in a collection.
+ * @param collectionPath - The path to the collection.
+ * @param callback - Function to handle the data array.
+ * @returns Unsubscribe function.
+ */
+export function subscribeToCollection(collectionPath: string, callback: (data: any[]) => void): () => void {
+    if (!db) throw new Error("Database not initialized.");
+    return db.collection(collectionPath).onSnapshot((snapshot: any) => {
+        const data = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+        callback(data);
+    }, (error: any) => {
+        console.error("Subscription error:", error);
+    });
+}
+
+/**
+ * Subscribes to changes in a collection group.
+ * @param collectionId - The ID of the subcollection.
+ * @param callback - Function to handle the data array.
+ * @returns Unsubscribe function.
+ */
+export function subscribeToCollectionGroup(collectionId: string, callback: (data: any[]) => void): () => void {
+    if (!db) throw new Error("Database not initialized.");
+    return db.collectionGroup(collectionId).onSnapshot((snapshot: any) => {
+        const data = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+        callback(data);
+    }, (error: any) => {
+         console.error("Subscription error:", error);
+    });
+}
+
+/**
+ * Subscribes to changes in a single document.
+ * @param collectionPath 
+ * @param docId 
+ * @param callback 
+ * @returns Unsubscribe function
+ */
+export function subscribeToDocument(collectionPath: string, docId: string, callback: (data: any) => void): () => void {
+    if (!db) throw new Error("Database not initialized.");
+    return db.collection(collectionPath).doc(docId).onSnapshot((doc: any) => {
+        if (doc.exists) {
+            callback({ id: doc.id, ...doc.data() });
+        } else {
+            callback(null);
+        }
+    }, (error: any) => {
+        console.error("Doc Subscription error:", error);
+    });
 }
