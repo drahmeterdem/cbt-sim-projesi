@@ -684,23 +684,28 @@
             <h2 class="text-2xl font-bold">Döküman İnceleme: <span id="upload-review-student-name" class="text-teal-600"></span></h2>
          </div>
          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[75vh]">
+            <!-- LEFT: Original Transcript -->
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                <div class="p-3 bg-gray-50 border-b border-gray-200 font-semibold text-gray-700 flex justify-between">
-                    <span>Öğrenci Yüklemesi</span>
-                    <span id="upload-meta-display" class="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded"></span>
+                <div class="p-3 bg-gray-50 border-b border-gray-200 font-semibold text-gray-700 flex justify-between items-center">
+                    <span class="flex items-center gap-2"><span class="material-symbols-outlined text-sm">description</span> Öğrenci Yüklemesi</span>
+                    <span id="upload-meta-display" class="text-xs font-normal text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded"></span>
                 </div>
-                <div id="upload-review-transcript" class="flex-1 p-6 overflow-y-auto prose prose-sm max-w-none"></div>
+                <div id="upload-review-transcript" class="flex-1 p-6 overflow-y-auto prose prose-sm max-w-none bg-white font-mono text-sm leading-relaxed text-gray-700"></div>
             </div>
+
+            <!-- RIGHT: AI Analysis & Feedback -->
             <div class="flex flex-col gap-6 h-full">
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden flex-1">
-                    <div class="p-3 bg-teal-50 border-b border-teal-100 font-semibold text-teal-800">AI Analizi</div>
-                    <div id="upload-review-analysis" class="flex-1 p-6 overflow-y-auto prose prose-sm max-w-none"></div>
+                    <div class="p-3 bg-teal-50 border-b border-teal-100 font-semibold text-teal-800 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-sm">psychology</span> AI Analiz Raporu
+                    </div>
+                    <div id="upload-review-analysis" class="flex-1 p-6 overflow-y-auto prose prose-sm max-w-none bg-teal-50/30"></div>
                 </div>
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 h-auto">
-                    <div id="existing-upload-feedback-display" class="mb-2 text-sm text-gray-600 bg-amber-50 p-2 rounded hidden:empty"></div>
-                    <h4 class="font-bold text-sm text-gray-800 mb-2">Geri Bildirim</h4>
-                    <textarea id="upload-feedback-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-sm" rows="3"></textarea>
-                    <button id="submit-upload-feedback-button" class="mt-2 w-full bg-amber-600 text-white rounded-lg h-9 font-medium hover:bg-amber-700 transition-colors">Kaydet</button>
+                    <div id="existing-upload-feedback-display" class="mb-2 text-sm text-gray-600 bg-amber-50 p-2 rounded hidden:empty border border-amber-100"></div>
+                    <h4 class="font-bold text-sm text-gray-800 mb-2">Süpervizör Geri Bildirimi</h4>
+                    <textarea id="upload-feedback-input" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-sm" rows="3" placeholder="Öğrenciye iletilecek notlarınızı buraya yazın..."></textarea>
+                    <button id="submit-upload-feedback-button" class="mt-2 w-full bg-amber-600 text-white rounded-lg h-9 font-medium hover:bg-amber-700 transition-colors shadow-sm">Kaydet ve Gönder</button>
                 </div>
             </div>
          </div>
