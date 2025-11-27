@@ -1321,27 +1321,31 @@ function renderAnalysisOutput(data: any, container: HTMLElement = analysis.outpu
 }
 
 async function handleSendAnalysisToTeacher() {
+    // If user edited the inputs after analysis, update the cache locally before sending
+    const clientName = analysis.clientNameInput.value.trim() || "Belirtilmedi";
+    const sessionNum = analysis.sessionNumInput.value.trim() || "1";
+
     if (!currentAnalysisCache) {
-        showNotification("Gönderilecek bir analiz bulunamadı.", "error");
+        showNotification("Lütfen önce analizi tamamlayın.", "error");
         return;
     }
+    
     if (!isDbConnected) {
         showNotification("Veritabanı bağlantısı olmadığından gönderilemedi.", "error");
         return;
     }
 
     const uploadId = `upload_${Date.now()}`;
-    // Re-read inputs in case user changed them after analysis
-    const clientName = analysis.clientNameInput.value.trim() || "Belirtilmedi";
-    const sessionNum = analysis.sessionNumInput.value.trim() || "1";
 
+    // Merge current input values with the cached analysis result
     const uploadData = {
         id: uploadId,
         studentId: currentUserId,
         studentEmail: currentStudentName,
         clientName: clientName,
         sessionNumber: sessionNum,
-        ...currentAnalysisCache,
+        transcript: currentAnalysisCache.transcript,
+        analysis: currentAnalysisCache.analysis,
         timestamp: new Date().toISOString(),
         feedback: null
     };
@@ -1692,7 +1696,6 @@ async function showStudentFullProfile(studentId: string) {
                     </div>
                     <p class="font-bold text-gray-800 text-sm">${session.scenario.title}</p>
                 </div>
-                 <!-- Note: For MVP we use the same review detail function for both types, though incomplete ones might be short -->
                  <button onclick="showSessionDetailReview('${studentId}', '${session.id}')" class="text-sm font-medium text-indigo-600 hover:underline">İncele</button>
             </div>`;
         });
@@ -1746,75 +1749,78 @@ async function showStudentFullProfile(studentId: string) {
 async function showSessionDetailReview(studentId: string, sessionId: string) {
     reviewingStudentId = studentId;
     reviewingSessionId = sessionId;
-    // We are reusing the chat review UI but inside a modal logic or separate screen?
-    // Current design: TeacherReviewScreen has a LIST view and DETAIL view.
-    // I need to adapt existing "teacher-review-detail-view" to work within the new profile context or hide the profile list.
-    // Let's hide the profile container and show the detail view inside the screen.
-    
-    // Hide Profile View
-    document.getElementById('teacher-review-detail-view')!.classList.add('hidden'); // The new profile view ID
-    
-    // NOTE: In my HTML update, I used 'teacher-review-detail-view' for the PROFILE. 
-    // The OLD detail view for chat history needs to be preserved or re-created.
-    // Let's look at HTML structure: 
-    // I replaced 'teacher-review-list-view' (which was just list of sessions) with 'teacher-review-detail-view' (Profile).
-    // I need a separate "Session Chat View".
-    
-    // Correct approach for this iteration:
-    // 1. Show a modal for session details OR
-    // 2. Swap the Profile content with Chat content.
-    
-    // Let's use a simple Modal approach for session details to avoid complex navigation state.
-    // Re-using 'teacher-review-screen' logic might be tricky if I overwrote the HTML.
-    
-    // Wait, I updated HTML for 'teacher-review-detail-view' to be the PROFILE.
-    // I removed the old chat container from that specific div in the HTML provided.
-    // I need to add a specific container for CHAT REVIEW back into the HTML or create a dynamic one.
-    
-    // Actually, looking at the HTML change, I didn't include a specific "Chat Review" container in the new HTML block.
-    // I should generate it dynamically in a modal or overlay.
+
+    // Dynamically create and show a modal for detailed session review
+    const existingModal = document.getElementById('session-review-modal');
+    if (existingModal) existingModal.remove();
     
     const modalHtml = `
-    <div id="session-review-modal" class="fixed inset-0 bg-white z-50 flex flex-col animate-fade-in-up">
-        <div class="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-            <h3 class="font-bold text-gray-800">Simülasyon Detayı</h3>
-            <button onclick="document.getElementById('session-review-modal').remove()" class="text-gray-500 hover:text-red-600"><span class="material-symbols-outlined">close</span></button>
-        </div>
-        <div class="flex-1 flex overflow-hidden">
-             <div id="modal-chat-container" class="flex-1 p-6 overflow-y-auto bg-slate-50 space-y-4"></div>
-             <div class="w-80 border-l border-gray-200 p-4 bg-white overflow-y-auto">
-                 <div id="modal-charts" class="mb-4"></div>
-                 <h4 class="font-bold text-sm mb-2">Geri Bildirim</h4>
-                 <textarea id="modal-feedback-input" class="w-full border-gray-300 rounded-lg text-sm mb-2" rows="4"></textarea>
-                 <button id="modal-save-feedback" class="w-full bg-amber-600 text-white rounded-lg py-2">Kaydet</button>
-             </div>
+    <div id="session-review-modal" class="fixed inset-0 bg-black/60 z-[100] flex flex-col items-center justify-center p-4 backdrop-blur-sm animate-fade-in-up">
+        <div class="bg-white w-full max-w-5xl h-[85vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl relative">
+            <div class="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center flex-none">
+                <h3 class="font-bold text-gray-800 flex items-center gap-2"><span class="material-symbols-outlined text-indigo-600">history_edu</span> Simülasyon Detayı</h3>
+                <button id="close-session-modal" class="text-gray-500 hover:text-red-600 bg-white p-1 rounded-full shadow-sm"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="flex-1 flex overflow-hidden">
+                 <div id="modal-chat-container" class="flex-1 p-6 overflow-y-auto bg-slate-50 space-y-4">
+                    <p class="text-center text-gray-400 mt-10">Sohbet geçmişi yükleniyor...</p>
+                 </div>
+                 <div class="w-80 border-l border-gray-200 p-4 bg-white overflow-y-auto flex-none">
+                     <div class="mb-6">
+                        <h4 class="font-bold text-xs text-gray-500 uppercase mb-3">Performans Analizi</h4>
+                        <div id="modal-charts" class="space-y-4"></div>
+                     </div>
+                     <div class="pt-4 border-t border-gray-100">
+                         <h4 class="font-bold text-xs text-gray-500 uppercase mb-2">Süpervizör Notu</h4>
+                         <textarea id="modal-feedback-input" class="w-full border-gray-300 rounded-lg text-sm mb-3 focus:ring-amber-500 focus:border-amber-500" rows="5" placeholder="Öğrenciye geri bildirim yazın..."></textarea>
+                         <button id="modal-save-feedback" class="w-full bg-amber-600 text-white rounded-lg py-2 font-medium hover:bg-amber-700 transition-colors">Notu Kaydet</button>
+                     </div>
+                 </div>
+            </div>
         </div>
     </div>`;
     
     document.body.insertAdjacentHTML('beforeend', modalHtml);
+    document.getElementById('close-session-modal')!.onclick = () => document.getElementById('session-review-modal')!.remove();
     
     const sessions = await getAllSessionsForStudent(studentId);
     const session = sessions.find(s => s.id === sessionId);
-    if (!session) return;
+    
+    if (!session) {
+        showNotification("Seans verisi bulunamadı.", "error");
+        document.getElementById('session-review-modal')!.remove();
+        return;
+    }
     
     const chatContainer = document.getElementById('modal-chat-container')!;
-    session.history.forEach((turn: any) => {
-        if (turn.role === 'user') {
-            addMessageToChat(chatContainer, 'therapist', turn.parts[0].text);
-        } else if (turn.role === 'model') {
-            try {
-                const modelResponse = JSON.parse(turn.parts[0].text);
-                addMessageToChat(chatContainer, 'client', modelResponse.clientResponse);
-            } catch (e) {
-                addMessageToChat(chatContainer, 'client', turn.parts[0].text);
+    chatContainer.innerHTML = '';
+    
+    if (!session.history || session.history.length === 0) {
+        chatContainer.innerHTML = '<p class="text-center text-gray-400 mt-10">Bu seansta kaydedilmiş mesaj yok.</p>';
+    } else {
+        session.history.forEach((turn: any) => {
+            if (turn.role === 'user') {
+                addMessageToChat(chatContainer, 'therapist', turn.parts[0].text);
+            } else if (turn.role === 'model') {
+                try {
+                    // Try parsing JSON if stored as JSON string
+                    const modelResponse = JSON.parse(turn.parts[0].text);
+                    addMessageToChat(chatContainer, 'client', modelResponse.clientResponse);
+                } catch (e) {
+                    // Fallback for raw text or simple objects
+                    const text = typeof turn.parts[0].text === 'object' ? JSON.stringify(turn.parts[0].text) : turn.parts[0].text;
+                    addMessageToChat(chatContainer, 'client', text);
+                }
             }
-        }
-    });
+        });
+        // Scroll to bottom
+        setTimeout(() => chatContainer.scrollTop = chatContainer.scrollHeight, 100);
+    }
     
     if (session.scores && session.scores.length > 0) {
         document.getElementById('modal-charts')!.innerHTML = createChartHTML(calculateAverageScores(session.scores));
     } else {
-        document.getElementById('modal-charts')!.innerHTML = '<p class="text-xs text-gray-400">Puanlama verisi yok (Yarım kalmış olabilir).</p>';
+        document.getElementById('modal-charts')!.innerHTML = '<p class="text-xs text-gray-400 italic">Puanlama verisi yok (Yarım kalmış olabilir).</p>';
     }
 
     const feedbackInput = document.getElementById('modal-feedback-input') as HTMLTextAreaElement;
@@ -1824,24 +1830,11 @@ async function showSessionDetailReview(studentId: string, sessionId: string) {
          const fb = feedbackInput.value.trim();
          if(fb) {
              await db.updateDataInSubcollection('students', studentId, 'sessions', sessionId, { feedback: fb });
-             showNotification("Kaydedildi.", "success");
+             showNotification("Geri bildirim kaydedildi.", "success");
+         } else {
+             showNotification("Lütfen bir not yazın.", "info");
          }
     });
-}
-
-
-async function handleSubmitSessionFeedback() {
-    const feedbackText = teacherReview.feedbackInput.value.trim();
-    if (!feedbackText) {
-        showNotification("Lütfen bir geri bildirim yazın.", "error");
-        return;
-    }
-    
-    const feedbackData = { feedback: feedbackText };
-    await db.updateDataInSubcollection('students', reviewingStudentId, 'sessions', reviewingSessionId, feedbackData);
-    
-    showNotification("Geri bildirim başarıyla kaydedildi!", "success");
-    teacherReview.existingFeedback.textContent = feedbackText;
 }
 
 
